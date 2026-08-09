@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LanSwitch.Agent/LanSwitch.Agent.csproj" />
+    <Project Path="src/LanSwitch.Core/LanSwitch.Core.csproj" />
+    <Project Path="src/LanSwitch.Windows/LanSwitch.Windows.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LanSwitch.Agent.Tests/LanSwitch.Agent.Tests.csproj" />
+    <Project Path="tests/LanSwitch.Core.Tests/LanSwitch.Core.Tests.csproj" />
+    <Project Path="tests/LanSwitch.Windows.Tests/LanSwitch.Windows.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,56 @@
+name: 功能建议
+description: 提议一个符合本地优先和安全回退原则的改进。
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        大型功能、协议变化和新增高权限能力会先讨论威胁模型、失败回退和维护成本。DeskMesh 不计划支持公网暴露、UAC 安全桌面或绕过 Windows 安全边界。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 描述实际工作流和当前阻碍，不要只描述按钮或技术方案。
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: 希望得到的结果
+      description: 什么可观察结果表示问题已解决？
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已尝试的替代方案
+      description: 包括 Windows 内置功能、硬件 KVM 或现有 DeskMesh 配置。
+
+  - type: textarea
+    id: security
+    attributes:
+      label: 权限、隐私与失败回退
+      description: 需要访问哪些数据？谁批准？断网、目标退出或撤销信任时应该怎样安全恢复？
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 适用环境
+      description: Windows 版本、网络、显示器、输入设备或音频设备等。
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 确认
+      options:
+        - label: 我已搜索现有 Issues 和 Discussions。
+          required: true
+        - label: 该建议不要求绕过 Windows 安全边界或把设备接口暴露到公网。
+          required: true

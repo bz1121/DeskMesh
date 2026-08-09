@@ -1,0 +1,18 @@
+<Project>
+  <PropertyGroup>
+    <!-- The public product version is defined once for every .NET project. -->
+    <Version>0.1.0-alpha.1</Version>
+    <Product>DeskMesh</Product>
+    <Authors>bz1121</Authors>
+    <Description>Secure local-network desktop, input, audio, clipboard, and file sharing for Windows.</Description>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Deterministic>true</Deterministic>
+    <DeterministicSourcePaths>true</DeterministicSourcePaths>
+    <PathMap>$(MSBuildProjectDirectory)=/_/src/$(MSBuildProjectName)</PathMap>
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+</Project>

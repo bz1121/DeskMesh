@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>DeskMesh</AssemblyName>
+    <RootNamespace>LanSwitch.Agent</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\LanSwitch.ico</ApplicationIcon>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <PublishSingleFile>false</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LanSwitch.Core\LanSwitch.Core.csproj" />
+    <ProjectReference Include="..\LanSwitch.Windows\LanSwitch.Windows.csproj" />
+    <PackageReference Include="NAudio" Version="2.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="LanSwitch.Agent.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Update="appsettings.Development.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" Condition="'$(Configuration)' == 'Release'" />
+  </ItemGroup>
+
+  <Target Name="BuildWebConsole" BeforeTargets="PrepareForPublish" Condition="'$(SkipWebBuild)' != 'true'">
+    <Exec Command="npm run build" WorkingDirectory="$(MSBuildProjectDirectory)\..\.." />
+    <ItemGroup>
+      <Content Remove="$(MSBuildProjectDirectory)\wwwroot\**\*" />
+      <Content Include="$(MSBuildProjectDirectory)\wwwroot\**\*" Link="wwwroot\%(RecursiveDir)%(Filename)%(Extension)"
+               CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+</Project>

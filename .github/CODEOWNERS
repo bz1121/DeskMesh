@@ -1,0 +1,12 @@
+# Default owner
+* @bz1121
+
+# Security-sensitive policy and automation
+/.github/ @bz1121
+/SECURITY.md @bz1121
+/PRIVACY.md @bz1121
+/docs/SECURITY-MODEL.md @bz1121
+/src/LanSwitch.Agent/Infrastructure/DeviceIdentityStore.cs @bz1121
+/src/LanSwitch.Agent/Services/InputCoordinator.cs @bz1121
+/src/LanSwitch.Agent/Services/FileTransferCoordinator.cs @bz1121
+/src/LanSwitch.Windows/Input/ @bz1121

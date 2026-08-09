@@ -1,0 +1,105 @@
+name: Bug 报告
+description: 报告可重复的 DeskMesh 软件问题；安全问题请使用私密报告。
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。DeskMesh 当前是未签名 Alpha。提交前请搜索现有 Issues，并删除日志或截图中的设备名、IP、文件路径、证书指纹和个人内容。**不要提交配对码、私钥或身份文件。**
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已确认这不是安全漏洞；安全问题会按 SECURITY.md 私密报告。
+          required: true
+        - label: 我已搜索现有 Issues，并在当前受支持 Alpha 中复现。
+          required: true
+        - label: 两台设备位于我信任的 Windows 专用局域网，未把设备端口暴露到公网。
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: DeskMesh 版本
+      description: 填写界面版本；自行构建时同时填写 commit SHA。
+      placeholder: 0.1.0-alpha.1 / abcdef1234
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境
+      description: 两台 Windows 版本、x64、网络类型，以及哪台连接实体键鼠。
+      placeholder: 控制端 Windows 11 24H2；目标端 Windows 10 22H2；千兆有线；键鼠在控制端。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 受影响功能
+      options:
+        - 配对与发现
+        - 全局键盘/鼠标
+        - 剪贴板
+        - 文件传输
+        - 显示器 DDC/CI
+        - 实体切源跟随
+        - 远程桌面
+        - 系统音频
+        - 本地网页或托盘
+        - 构建、打包或发布
+        - 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 最小复现步骤
+      description: 从两端刚启动的状态开始，按顺序列出操作。
+      placeholder: |
+        1. 在控制端……
+        2. 在目标端……
+        3. 观察到……
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为与安全恢复结果
+      description: 是否可用 Ctrl+Alt+Shift+Esc 回本机？是否有卡键、黑屏或数据残留？
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 已脱敏诊断
+      description: 粘贴相关的少量日志。请用 DEVICE_A、192.168.x.x、PATH 等替换敏感值。
+      render: text
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: 硬件与性能信息（如相关）
+      description: 显示器/接口/DDC 状态，或分辨率、目标与实际 FPS、CPU、网络、声卡。
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: 其他信息
+      description: 可附已脱敏截图；请勿上传包含个人桌面内容的完整远程画面。

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用讨论 / Support discussion
+    url: https://github.com/bz1121/DeskMesh/discussions
+    about: 配置、兼容性和一般使用问题请先在 Discussions 提问。
+  - name: 私密安全报告 / Private security report
+    url: https://github.com/bz1121/DeskMesh/security/advisories/new
+    about: 不要公开安全漏洞；请使用 GitHub 私密漏洞报告。

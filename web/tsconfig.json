@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "incremental": false,
+    "types": ["vite/client"]
+  },
+  "include": [
+    "../app/page.tsx",
+    "../app/layout.tsx",
+    "./**/*.ts",
+    "./**/*.tsx"
+  ]
+}

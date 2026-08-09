@@ -1,0 +1,95 @@
+# DeskMesh
+
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+[![CI](https://github.com/bz1121/deskmesh/actions/workflows/ci.yml/badge.svg)](https://github.com/bz1121/deskmesh/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/bz1121/deskmesh/actions/workflows/codeql.yml/badge.svg)](https://github.com/bz1121/deskmesh/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+DeskMesh is a local-network desktop companion for Windows 10 and Windows 11 x64. Run the same tray agent on two trusted PCs to share keyboard and mouse input, system audio, a remote desktop view, text and image clipboards, and approval-based file transfers. If both PCs share a DDC/CI-capable monitor, DeskMesh can also coordinate HDMI1 and DisplayPort input switching.
+
+> **Alpha notice:** The current public release is `v0.1.0-alpha.1`. Remote desktop, audio forwarding, and DDC/CI integration are experimental. The 90 FPS setting is an upper limit, not a performance guarantee for every computer or network. Release executables are not yet Authenticode-signed, so Windows SmartScreen may report an unknown publisher.
+
+DeskMesh has no cloud dependency. Its local control panel listens only on `127.0.0.1:5616`. Peer traffic uses `45832/TCP` with mutual TLS, ECDSA device identities, and pinned certificate fingerprints; automatic discovery uses `45830/UDP`.
+
+## Features
+
+- Software-based global keyboard and mouse forwarding with a configurable switch shortcut. The fixed emergency shortcut `Ctrl+Alt+Shift+Esc` always releases control back to the local PC.
+- Remote desktop viewing and control with remote-display selection, JPEG-compatible transport, and a configurable 2–90 FPS range.
+- Remote system-audio forwarding to the controller's default Windows output device. Microphones are never captured.
+- Unicode text and PNG image clipboard synchronization with size limits, loop prevention, and replay protection.
+- Drag-and-drop single-file transfers that require explicit approval and a destination on the receiving PC, using TLS streaming and final SHA-256 verification for files up to 2 GB.
+- DDC/CI VCP `0x60` two-sample probing, HDMI1/DisplayPort mappings, switch verification, and physical-input-following when both agents can read the monitor state.
+- A restricted write-only DDC compatibility mode that permits only HDMI1 `0x11` and DisplayPort `0x0F`; every mapping must be tested individually and confirmed visually.
+- Six-digit one-time pairing codes, human-verifiable security phrases, mutual TLS, epoch and sequence replay protection, multicast/directed-broadcast discovery, and manual IP entry.
+- A responsive Simplified Chinese control panel and tray menu, plus optional startup after the current user signs in.
+
+For privacy, **automatic clipboard synchronization, audio forwarding, and remote desktop access are disabled on new installations**. Pair only with trusted devices and enable each capability locally as needed.
+
+## Download and verify
+
+Download `DeskMesh-0.1.0-alpha.1-win-x64.zip` and `SHA256SUMS.txt` from [GitHub Releases](https://github.com/bz1121/deskmesh/releases). Both PCs must run the same version.
+
+Verify the archive in PowerShell:
+
+```powershell
+Get-FileHash .\DeskMesh-0.1.0-alpha.1-win-x64.zip -Algorithm SHA256
+```
+
+Compare the result with `SHA256SUMS.txt` on the release page before extracting the archive. DeskMesh is portable: it does not install a SYSTEM service and does not include LAN self-update or remote software-push functionality.
+
+## Five-minute quick start
+
+1. Extract the release ZIP on both Windows PCs and run `DeskMesh.exe` on each one.
+2. If Windows Firewall prompts you, allow access only on **Private networks**.
+3. Double-click the tray icon or open <http://127.0.0.1:5616/>.
+4. On the target PC, open **Security and pairing** and generate a fresh pairing code. On the other PC, enter the target IP address and that code.
+5. Compare the security phrase and certificate fingerprint on both PCs, then approve the request on the target PC.
+6. Enable clipboard synchronization, audio forwarding, or remote desktop access only where needed.
+7. If both PCs share one monitor, follow the [complete setup guide in Simplified Chinese](docs/QUICKSTART.zh-CN.md) to calibrate HDMI1 and DisplayPort.
+
+The default data directory is `%LOCALAPPDATA%\DeskMesh`. For compatibility with early test builds, DeskMesh continues to use `%LOCALAPPDATA%\LanSwitch` when that legacy directory is the only one present, preserving existing pairings and display mappings.
+
+## Important limitations
+
+DeskMesh forwards input in software; it does not physically reconnect USB devices to another PC. Windows `SendInput` cannot reliably control the UAC secure desktop, the lock screen, pre-login interfaces, `Ctrl+Alt+Del`, BIOS/UEFI, elevated administrator windows, or some anti-cheat-protected games. Use a hardware KVM for those scenarios.
+
+DDC/CI reliability depends on the monitor, cables, graphics driver, and active input. A monitor may stop exposing its DDC channel to the previous input after switching. Always keep the monitor's physical controls and the emergency shortcut available as fallback options.
+
+The current trust model targets private home networks. Approving a pairing establishes device-level trust; per-device, fine-grained capability permissions are not yet available. See the [security model](docs/SECURITY-MODEL.md) and [privacy notice](PRIVACY.md) for details.
+
+## Build from source
+
+Requirements:
+
+- Windows 10 or Windows 11 x64
+- Node.js 22 or later
+- .NET SDK 10.0.302 (see `global.json`)
+
+```powershell
+npm ci
+.\scripts\build.ps1
+.\scripts\package.ps1
+```
+
+The build script runs TypeScript type checking, ESLint, the Vite production build, and all .NET tests in Release configuration. The packaging script produces a self-contained `win-x64` ZIP, a version/commit manifest, and a SHA-256 digest. Public packages exclude PDB files and development configuration.
+
+## Documentation
+
+The detailed project documentation is currently maintained in Simplified Chinese:
+
+- [Simplified Chinese README](README.zh-CN.md)
+- [Complete setup guide (Simplified Chinese)](docs/QUICKSTART.zh-CN.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Security model](docs/SECURITY-MODEL.md)
+- [Privacy notice](PRIVACY.md)
+- [Release process](docs/RELEASING.md)
+- [Support and troubleshooting](SUPPORT.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+
+Report security vulnerabilities privately as described in [SECURITY.md](SECURITY.md). Do not include pairing codes, certificates, IP addresses, file names, or unsanitized diagnostic logs in public issues.
+
+## License
+
+DeskMesh is released under the [MIT License](LICENSE). Third-party notices are available in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
