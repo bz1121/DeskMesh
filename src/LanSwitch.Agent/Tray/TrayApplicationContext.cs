@@ -19,10 +19,12 @@ public sealed class TrayApplicationContext : ApplicationContext
         _options = options;
         var menu = new ContextMenuStrip();
         menu.Items.Add("打开控制台", null, (_, _) => OpenDashboard());
-        menu.Items.Add("切换到另一台电脑", null, async (_, _) => await RunAsync(() =>
-            _services.GetRequiredService<FocusCoordinator>().SwitchAsync(null, CancellationToken.None)));
+        menu.Items.Add("切换到另一台电脑", null, async (_, _) => await RunAsync(ToggleOtherComputerAsync));
         menu.Items.Add("紧急切回本机", null, async (_, _) => await RunAsync(() =>
-            _services.GetRequiredService<FocusCoordinator>().EmergencyReleaseAsync("托盘紧急切回", CancellationToken.None)));
+            _services.GetRequiredService<FocusCoordinator>().RequestUserReleaseAsync(
+                "托盘紧急切回",
+                "tray",
+                CancellationToken.None)));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("复制本机配对码", null, async (_, _) => await CopyPairingCodeAsync());
         var startup = new ToolStripMenuItem("登录后自动启动")
@@ -97,6 +99,24 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         try { await operation(); }
         catch (Exception exception) { _icon.ShowBalloonTip(5000, "DeskMesh 操作失败", exception.Message, ToolTipIcon.Error); }
+    }
+
+    private async Task ToggleOtherComputerAsync()
+    {
+        var seamless = SwitchModeConfiguration.IsSeamlessRemote(
+            _services.GetRequiredService<SettingsStore>().Snapshot.SwitchMode);
+        if (seamless)
+        {
+            OpenDashboard();
+            _icon.ShowBalloonTip(
+                3500,
+                "DeskMesh 无缝远程",
+                "控制中心已打开。请在前台页面选择设备进入无缝远程；显示器信号不会切换。",
+                ToolTipIcon.Info);
+            return;
+        }
+        _ = await _services.GetRequiredService<FocusCoordinator>()
+            .RequestUserToggleAsync("tray", CancellationToken.None);
     }
 
     private async Task CopyPairingCodeAsync()

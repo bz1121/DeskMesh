@@ -159,7 +159,7 @@ public sealed class DistributedPhysicalFollowTests
                 new DisplayOperationResult(true, true, true, "test", CommandIssued: true));
             var input = new InputCoordinator();
             var focus = new FocusCoordinator(identity, settings, peers, new PeerHttpClientFactory(identity),
-                state, input, display);
+                state, input, display, new RemoteDesktopOutgoingSessionRegistry());
             var service = new DistributedPhysicalFollowService(identity, settings, peers,
                 new PeerHttpClientFactory(identity), display, focus, state,
                 NullLogger<DistributedPhysicalFollowService>.Instance);

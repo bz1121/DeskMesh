@@ -101,6 +101,17 @@ public sealed class RemoteDesktopTests
     }
 
     [Fact]
+    public void RemoteDesktopInputLeaseIsShortAndBounded()
+    {
+        Assert.Equal(2, RemoteDesktopProtocol.Version);
+        Assert.Equal("lanswitch.remote-desktop.v2", RemoteDesktopProtocol.SubProtocol);
+        Assert.InRange(
+            RemoteDesktopProtocol.InputLeaseWindow,
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(2));
+    }
+
+    [Fact]
     public void RemoteDesktopSessionRegistryRevokesDisposedSessions()
     {
         var registry = new RemoteDesktopSessionRegistry();
@@ -114,5 +125,57 @@ public sealed class RemoteDesktopTests
         }
 
         Assert.False(registry.IsActive("peer-a", sessionId));
+    }
+
+    [Fact]
+    public void OutgoingDesktopSessionBlocksSystemFocusTransition()
+    {
+        var registry = new RemoteDesktopOutgoingSessionRegistry();
+
+        using (registry.BeginSession("peer-a"))
+        {
+            Assert.True(registry.HasActiveSessions);
+            Assert.Null(registry.TryAcquireFocusTransition());
+        }
+
+        using var transition = registry.TryAcquireFocusTransition();
+        Assert.NotNull(transition);
+    }
+
+    [Fact]
+    public void SystemFocusTransitionBlocksNewDesktopSession()
+    {
+        var registry = new RemoteDesktopOutgoingSessionRegistry();
+        using var transition = registry.TryAcquireFocusTransition();
+
+        Assert.NotNull(transition);
+        Assert.Throws<InvalidOperationException>(() => registry.BeginSession("peer-a"));
+    }
+
+    [Fact]
+    public void CancelAllSignalsEveryOutgoingDesktopSession()
+    {
+        var registry = new RemoteDesktopOutgoingSessionRegistry();
+        using var first = registry.BeginSession("peer-a");
+        using var second = registry.BeginSession("peer-b");
+
+        Assert.True(registry.CancelAllAndAdvanceGeneration());
+        Assert.True(first.CancellationToken.IsCancellationRequested);
+        Assert.True(second.CancellationToken.IsCancellationRequested);
+        Assert.True(registry.HasActiveSessions);
+    }
+
+    [Fact]
+    public void ReturnHomeInvalidatesAStreamThatHasNotConnectedYet()
+    {
+        var registry = new RemoteDesktopOutgoingSessionRegistry();
+        var staleGeneration = registry.CaptureGeneration();
+
+        Assert.False(registry.CancelAllAndAdvanceGeneration());
+
+        Assert.Throws<InvalidOperationException>(() =>
+            registry.BeginSession("peer-a", staleGeneration));
+        using var current = registry.BeginSession("peer-a", registry.CaptureGeneration());
+        Assert.True(registry.HasActiveSessions);
     }
 }

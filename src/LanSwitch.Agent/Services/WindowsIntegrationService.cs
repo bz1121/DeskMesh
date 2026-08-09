@@ -127,18 +127,52 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
 
     private void OnHotkeyPressed(object? sender, HotkeyPressedEventArgs args)
     {
-        if (args.Command == HotkeyCommand.EmergencyRelease)
+        var switchMode = _settings.Snapshot.SwitchMode;
+        switch (ResolveHotkeyRouting(args.Command, switchMode))
         {
-            _focus.EmergencyReleaseNow("紧急快捷键");
-            return;
+            case HotkeyRoutingAction.EmergencyRelease:
+                PublishSeamlessReleaseIfNeeded(switchMode, "emergency-hotkey");
+                _focus.EmergencyReleaseNow(
+                    "紧急快捷键",
+                    restoreDisplay: _state.Focus.IsRemote || !SwitchModeConfiguration.IsSeamlessRemote(switchMode));
+                return;
+            case HotkeyRoutingAction.SwitchToPrimary:
+                PublishSeamlessReleaseIfNeeded(switchMode, "local-hotkey");
+                _focus.EmergencyReleaseNow(
+                    "快捷键切回本机",
+                    restoreDisplay: _state.Focus.IsRemote || !SwitchModeConfiguration.IsSeamlessRemote(switchMode));
+                return;
+            case HotkeyRoutingAction.RequestSeamlessRemote:
+                _ = RunSafelyAsync(() => _focus.RequestUserToggleAsync("hotkey", CancellationToken.None));
+                return;
+            case HotkeyRoutingAction.SwitchDirectSignal:
+                _ = RunSafelyAsync(() => _focus.SwitchAsync(null, CancellationToken.None));
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(args.Command));
         }
-        if (args.Command == HotkeyCommand.SwitchToPrimary)
-        {
-            _focus.EmergencyReleaseNow("快捷键切回本机");
-            return;
-        }
-        _ = RunSafelyAsync(() => _focus.SwitchAsync(null, CancellationToken.None));
     }
+
+    private void PublishSeamlessReleaseIfNeeded(string switchMode, string source)
+    {
+        if (!SwitchModeConfiguration.IsSeamlessRemote(switchMode)) return;
+        _state.Publish("seamless-release-request", new
+        {
+            mode = SwitchModeConfiguration.SeamlessRemote,
+            source
+        });
+    }
+
+    internal static HotkeyRoutingAction ResolveHotkeyRouting(HotkeyCommand command, string? switchMode) =>
+        command switch
+        {
+            HotkeyCommand.EmergencyRelease => HotkeyRoutingAction.EmergencyRelease,
+            HotkeyCommand.SwitchToPrimary => HotkeyRoutingAction.SwitchToPrimary,
+            HotkeyCommand.SwitchToSecondary when SwitchModeConfiguration.IsSeamlessRemote(switchMode) =>
+                HotkeyRoutingAction.RequestSeamlessRemote,
+            HotkeyCommand.SwitchToSecondary => HotkeyRoutingAction.SwitchDirectSignal,
+            _ => throw new ArgumentOutOfRangeException(nameof(command))
+        };
 
     private void OnSettingsChanged(AgentSettings settings)
     {
@@ -363,4 +397,12 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
         _injector.Dispose();
         _ddc.Dispose();
     }
+}
+
+internal enum HotkeyRoutingAction
+{
+    SwitchToPrimary,
+    SwitchDirectSignal,
+    RequestSeamlessRemote,
+    EmergencyRelease
 }

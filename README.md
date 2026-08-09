@@ -14,6 +14,7 @@ DeskMesh has no cloud dependency. Its local control panel listens only on `127.0
 
 ## Features
 
+- Two explicit switching modes: **Direct Signal** coordinates DDC/CI and global input for native image quality, while **Seamless Remote** keeps the monitor input unchanged and opens a full-viewport encrypted remote desktop session without the signal-switch blackout.
 - Software-based global keyboard and mouse forwarding with a configurable switch shortcut. The fixed emergency shortcut `Ctrl+Alt+Shift+Esc` always releases control back to the local PC.
 - Remote desktop viewing and control with remote-display selection, JPEG-compatible transport, and a configurable 2–90 FPS range.
 - Remote system-audio forwarding to the controller's default Windows output device. Microphones are never captured.
@@ -46,7 +47,8 @@ Compare the result with `SHA256SUMS.txt` on the release page before extracting t
 4. On the target PC, open **Security and pairing** and generate a fresh pairing code. On the other PC, enter the target IP address and that code.
 5. Compare the security phrase and certificate fingerprint on both PCs, then approve the request on the target PC.
 6. Enable clipboard synchronization, audio forwarding, or remote desktop access only where needed.
-7. If both PCs share one monitor, follow the [complete setup guide in Simplified Chinese](docs/QUICKSTART.zh-CN.md) to calibrate HDMI1 and DisplayPort.
+7. Choose **Direct Signal** for native monitor output or **Seamless Remote** for a no-signal-switch remote view. The seamless mode requires the local control-panel tab to remain open and focused, and the target PC to allow remote desktop access.
+8. If both PCs share one monitor, follow the [complete setup guide in Simplified Chinese](docs/QUICKSTART.zh-CN.md) to calibrate HDMI1 and DisplayPort.
 
 The default data directory is `%LOCALAPPDATA%\DeskMesh`. For compatibility with early test builds, DeskMesh continues to use `%LOCALAPPDATA%\LanSwitch` when that legacy directory is the only one present, preserving existing pairings and display mappings.
 
@@ -55,6 +57,8 @@ The default data directory is `%LOCALAPPDATA%\DeskMesh`. For compatibility with 
 DeskMesh forwards input in software; it does not physically reconnect USB devices to another PC. Windows `SendInput` cannot reliably control the UAC secure desktop, the lock screen, pre-login interfaces, `Ctrl+Alt+Del`, BIOS/UEFI, elevated administrator windows, or some anti-cheat-protected games. Use a hardware KVM for those scenarios.
 
 DDC/CI reliability depends on the monitor, cables, graphics driver, and active input. A monitor may stop exposing its DDC channel to the previous input after switching. Always keep the monitor's physical controls and the emergency shortcut available as fallback options.
+
+Seamless Remote avoids the monitor's HDMI/DisplayPort resynchronization blackout because it does not change the physical input. It uses the browser remote-desktop stream instead of the system-wide input route; the first decoded frame must be displayed before control starts. The global switch shortcut can request this mode only while a control-panel tab is open, visible, and focused. In this mode, the tray switch action opens the control panel and asks you to select a device instead of guessing a target. Use Direct Signal when native image quality, HDR, high refresh rate, or protected applications matter more than a blackout-free transition.
 
 The current trust model targets private home networks. Approving a pairing establishes device-level trust; per-device, fine-grained capability permissions are not yet available. See the [security model](docs/SECURITY-MODEL.md) and [privacy notice](PRIVACY.md) for details.
 

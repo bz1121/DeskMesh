@@ -100,6 +100,7 @@ internal static class Program
         builder.Services.AddSingleton<DisplayCoordinator>();
         builder.Services.AddSingleton<InputCoordinator>();
         builder.Services.AddSingleton<AudioRelayService>();
+        builder.Services.AddSingleton<RemoteDesktopOutgoingSessionRegistry>();
         builder.Services.AddSingleton<RemoteDesktopService>();
         builder.Services.AddSingleton<DistributedPhysicalFollowService>();
         builder.Services.AddHostedService<PeerDiscoveryService>();

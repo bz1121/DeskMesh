@@ -162,9 +162,25 @@ public static class ApiEndpoints
             Results.Ok(await pairing.ConfirmIncomingAsync(id, request.Approve, cancellationToken)));
 
         app.MapPost("/api/v1/focus/switch", async (SwitchFocusRequest request, FocusCoordinator focus,
-            CancellationToken cancellationToken) => Results.Ok(await focus.SwitchAsync(request.TargetDeviceId, cancellationToken)));
+            SettingsStore settings, CancellationToken cancellationToken) =>
+        {
+            if (SwitchModeConfiguration.IsSeamlessRemote(settings.Snapshot.SwitchMode))
+                return Results.Conflict(new
+                {
+                    error = "当前是无缝远程模式；请通过控制中心打开远程画面，或先切换为直接信号模式。"
+                });
+            return Results.Ok(await focus.SwitchAsync(request.TargetDeviceId, cancellationToken));
+        });
         app.MapPost("/api/v1/focus/release", async (FocusCoordinator focus, CancellationToken cancellationToken) =>
-            Results.Ok(await focus.EmergencyReleaseAsync("网页请求切回本机", cancellationToken)));
+            Results.Ok(await focus.RequestUserReleaseAsync(
+                "网页请求切回本机",
+                "web-api",
+                cancellationToken)));
+        app.MapGet("/api/v1/focus/mode", (SettingsStore settings) =>
+            Results.Ok(new SwitchModeSettingsView(settings.Snapshot.SwitchMode)));
+        app.MapPut("/api/v1/focus/mode", async (SwitchModeSettingsUpdateRequest request,
+            FocusCoordinator focus, CancellationToken cancellationToken) =>
+            Results.Ok(await focus.UpdateSwitchModeAsync(request.Mode, cancellationToken)));
 
         app.MapGet("/api/v1/clipboard", (ClipboardCoordinator clipboard) => Results.Ok(clipboard.GetPolicy()));
         app.MapPatch("/api/v1/clipboard/policy", async (ClipboardPolicyRequest request, ClipboardCoordinator clipboard,

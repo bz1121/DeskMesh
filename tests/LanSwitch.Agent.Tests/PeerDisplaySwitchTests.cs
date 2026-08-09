@@ -253,6 +253,95 @@ public sealed class PeerDisplaySwitchTests
     }
 
     [Fact]
+    public async Task SeamlessModeBlocksEverySystemFocusSwitchBeforeDdcOrNetworkWork()
+    {
+        using var context = TestContext.Create();
+        await context.EnsurePeerOnlineAsync();
+        await context.Settings.UpdateAsync(current => current with
+        {
+            SwitchMode = SwitchModeConfiguration.SeamlessRemote
+        });
+        var displayWrites = 0;
+        context.Display.SwitchRequested += (_, _, _) =>
+        {
+            Interlocked.Increment(ref displayWrites);
+            return Task.FromResult(new DisplayOperationResult(
+                true, true, true, "unexpected", CommandIssued: true));
+        };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            context.Focus.SwitchAsync(context.Peer.Id, CancellationToken.None));
+
+        Assert.Contains("无缝远程", error.Message, StringComparison.Ordinal);
+        Assert.Equal(0, displayWrites);
+        Assert.False(context.State.Focus.IsRemote);
+    }
+
+    [Fact]
+    public async Task ModeCannotChangeWhileAFocusTransitionIsInProgress()
+    {
+        using var context = TestContext.Create();
+        context.State.SetFocus(new FocusView(
+            1,
+            context.Identity.DeviceId,
+            "LOCAL",
+            "preparing",
+            false));
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            context.Focus.UpdateSwitchModeAsync(
+                SwitchModeConfiguration.SeamlessRemote,
+                CancellationToken.None));
+
+        Assert.Contains("当前切换", error.Message, StringComparison.Ordinal);
+        Assert.Equal(SwitchModeConfiguration.DirectSignal, context.Settings.Snapshot.SwitchMode);
+    }
+
+    [Fact]
+    public async Task ModeCannotChangeWhileOutgoingRemoteDesktopIsActive()
+    {
+        using var context = TestContext.Create();
+        using var desktop = context.OutgoingDesktopSessions.BeginSession(context.Peer.Id);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            context.Focus.UpdateSwitchModeAsync(
+                SwitchModeConfiguration.SeamlessRemote,
+                CancellationToken.None));
+
+        Assert.Contains("远程桌面", error.Message, StringComparison.Ordinal);
+        Assert.Equal(SwitchModeConfiguration.DirectSignal, context.Settings.Snapshot.SwitchMode);
+    }
+
+    [Fact]
+    public async Task DirectFocusCannotStartWhileOutgoingRemoteDesktopIsActive()
+    {
+        using var context = TestContext.Create();
+        await context.EnsurePeerOnlineAsync();
+        using var desktop = context.OutgoingDesktopSessions.BeginSession(context.Peer.Id);
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            context.Focus.SwitchAsync(context.Peer.Id, CancellationToken.None));
+
+        Assert.Contains("远程桌面", error.Message, StringComparison.Ordinal);
+        Assert.False(context.State.Focus.IsRemote);
+    }
+
+    [Fact]
+    public async Task UserReleaseCancelsOutgoingRemoteDesktop()
+    {
+        using var context = TestContext.Create();
+        using var desktop = context.OutgoingDesktopSessions.BeginSession(context.Peer.Id);
+
+        _ = await context.Focus.RequestUserReleaseAsync(
+            "test release",
+            "test",
+            CancellationToken.None);
+
+        Assert.True(desktop.CancellationToken.IsCancellationRequested);
+        Assert.False(context.State.Focus.IsRemote);
+    }
+
+    [Fact]
     public async Task ForwardArrivalDeadlineUsesChineseTimeoutAndRollsBackDisplay()
     {
         using var context = TestContext.Create();
@@ -326,7 +415,8 @@ public sealed class PeerDisplaySwitchTests
 
         private TestContext(string directory, DeviceIdentity identity, RuntimePeer peer,
             SettingsStore settings, AppState state, PeerDirectory peers, InputCoordinator input,
-            DisplayCoordinator display, FocusCoordinator focus)
+            DisplayCoordinator display, FocusCoordinator focus,
+            RemoteDesktopOutgoingSessionRegistry outgoingDesktopSessions)
         {
             _directory = directory;
             Identity = identity;
@@ -337,6 +427,7 @@ public sealed class PeerDisplaySwitchTests
             Input = input;
             Display = display;
             Focus = focus;
+            OutgoingDesktopSessions = outgoingDesktopSessions;
         }
 
         internal DeviceIdentity Identity { get; }
@@ -347,6 +438,7 @@ public sealed class PeerDisplaySwitchTests
         internal InputCoordinator Input { get; }
         internal DisplayCoordinator Display { get; }
         internal FocusCoordinator Focus { get; }
+        internal RemoteDesktopOutgoingSessionRegistry OutgoingDesktopSessions { get; }
 
         internal PeerDisplaySwitchCommand Command(long epoch) =>
             new(epoch, Peer.Id, Identity.DeviceId, Peer.Id);
@@ -383,12 +475,23 @@ public sealed class PeerDisplaySwitchTests
             var peers = new PeerDirectory(settings);
             var input = new InputCoordinator();
             var display = new DisplayCoordinator(settings, state);
+            var outgoingDesktopSessions = new RemoteDesktopOutgoingSessionRegistry();
             var focus = new FocusCoordinator(identity, settings, peers, new PeerHttpClientFactory(identity),
-                state, input, display);
+                state, input, display, outgoingDesktopSessions);
             var peer = new RuntimePeer(Guid.NewGuid().ToString("N"), "DP device", "192.168.1.20", 45832,
                 new string('A', 64), null, true, true, 1, DateTimeOffset.UtcNow,
                 ["input", "display"]);
-            return new TestContext(directory, identity, peer, settings, state, peers, input, display, focus);
+            return new TestContext(
+                directory,
+                identity,
+                peer,
+                settings,
+                state,
+                peers,
+                input,
+                display,
+                focus,
+                outgoingDesktopSessions);
         }
 
         public void Dispose()

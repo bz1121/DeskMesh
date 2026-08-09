@@ -7,6 +7,7 @@ export type AgentStatus = {
   version?: string;
   uptimeSeconds?: number;
   network?: unknown;
+  switchMode?: SwitchMode;
   focus?: {
     epoch?: number;
     activeDeviceId?: string;
@@ -129,6 +130,12 @@ export type HotkeySettings = {
   emergency: string;
 };
 
+export type SwitchMode = "directSignal" | "seamlessRemote";
+
+export type SwitchModeSettings = {
+  mode: SwitchMode;
+};
+
 export type AudioSettings = {
   enabled: boolean;
   volume: number;
@@ -152,6 +159,11 @@ export type RemoteDesktopDisplay = {
   left: number;
   top: number;
   primary: boolean;
+};
+
+export type RemoteDesktopDisplayCatalog = {
+  generation: number;
+  displays: RemoteDesktopDisplay[];
 };
 
 export type DiagnosticLog = {

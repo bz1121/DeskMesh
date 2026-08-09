@@ -12,8 +12,9 @@ public sealed class SettingsStore
     public SettingsStore(AgentOptions options, DeviceIdentity identity)
     {
         _path = Path.Combine(options.DataDirectory, "settings.json");
-        _settings = RemoteDesktopConfiguration.Normalize(AudioConfiguration.Normalize(
-            HotkeyConfiguration.Normalize(Load(_path) ?? AgentSettings.CreateDefault(identity.DeviceId))));
+        _settings = SwitchModeConfiguration.Normalize(RemoteDesktopConfiguration.Normalize(
+            AudioConfiguration.Normalize(HotkeyConfiguration.Normalize(
+                Load(_path) ?? AgentSettings.CreateDefault(identity.DeviceId)))));
         if (!_settings.DdcWriteOnlyEnabled || string.IsNullOrWhiteSpace(_settings.DdcWriteOnlyMonitorId))
         {
             _settings = _settings with
@@ -56,8 +57,8 @@ public sealed class SettingsStore
             AgentSettings next;
             lock (_settingsGate)
             {
-                next = RemoteDesktopConfiguration.Normalize(
-                    AudioConfiguration.Normalize(HotkeyConfiguration.Normalize(update(_settings))));
+                next = SwitchModeConfiguration.Normalize(RemoteDesktopConfiguration.Normalize(
+                    AudioConfiguration.Normalize(HotkeyConfiguration.Normalize(update(_settings)))));
             }
             var json = JsonSerializer.Serialize(next, JsonOptions);
             var temp = _path + ".new";
@@ -126,7 +127,8 @@ public sealed record AgentSettings(
     int AudioVolume = 100,
     bool RemoteDesktopEnabled = false,
     int RemoteDesktopFramesPerSecond = RemoteDesktopConfiguration.DefaultFramesPerSecond,
-    int RemoteDesktopJpegQuality = RemoteDesktopConfiguration.DefaultJpegQuality)
+    int RemoteDesktopJpegQuality = RemoteDesktopConfiguration.DefaultJpegQuality,
+    string SwitchMode = SwitchModeConfiguration.DirectSignal)
 {
     public static AgentSettings CreateDefault(string deviceId) => new(
         deviceId,
@@ -153,7 +155,8 @@ public sealed record AgentSettings(
         100,
         false,
         RemoteDesktopConfiguration.DefaultFramesPerSecond,
-        RemoteDesktopConfiguration.DefaultJpegQuality);
+        RemoteDesktopConfiguration.DefaultJpegQuality,
+        SwitchModeConfiguration.DirectSignal);
 }
 
 public sealed record StoredPeer(string Id, string Name, string Address, int Port, string Fingerprint, string CertificateBase64, DateTimeOffset PairedAt);

@@ -22,6 +22,7 @@ public sealed class RemoteDesktopService : IDisposable
     private readonly PeerDirectory _peers;
     private readonly PeerHttpClientFactory _clients;
     private readonly AudioRelayService _audio;
+    private readonly RemoteDesktopOutgoingSessionRegistry _outgoingSessions;
     private readonly ILogger<RemoteDesktopService> _logger;
     private readonly SemaphoreSlim _captureGate = new(1, 1);
     private readonly RemoteDesktopSessionRegistry _sessions = new();
@@ -35,6 +36,7 @@ public sealed class RemoteDesktopService : IDisposable
         PeerDirectory peers,
         PeerHttpClientFactory clients,
         AudioRelayService audio,
+        RemoteDesktopOutgoingSessionRegistry outgoingSessions,
         ILogger<RemoteDesktopService> logger)
     {
         _identity = identity;
@@ -43,6 +45,7 @@ public sealed class RemoteDesktopService : IDisposable
         _peers = peers;
         _clients = clients;
         _audio = audio;
+        _outgoingSessions = outgoingSessions;
         _logger = logger;
         _injector.Start();
     }
@@ -74,17 +77,34 @@ public sealed class RemoteDesktopService : IDisposable
                ?? [];
     }
 
+    public async Task<RemoteDesktopDisplayCatalog> GetRemoteDisplayCatalogAsync(
+        string targetDeviceId,
+        CancellationToken cancellationToken)
+    {
+        var generation = _outgoingSessions.CaptureGeneration();
+        var displays = await GetRemoteDisplaysAsync(targetDeviceId, cancellationToken);
+        if (!_outgoingSessions.IsGenerationCurrent(generation))
+            throw new InvalidOperationException(
+                "读取屏幕期间发生了回本机操作，请重新读取屏幕后再连接。");
+        return new RemoteDesktopDisplayCatalog(generation, displays);
+    }
+
     public async Task ProxyAsync(
         WebSocket browser,
         string targetDeviceId,
         int displayIndex,
+        long expectedGeneration,
         CancellationToken cancellationToken)
     {
         var target = RequireTarget(targetDeviceId);
+        using var outgoingSession = _outgoingSessions.BeginSession(target.Id, expectedGeneration);
         if (!_peers.TryGetTrustToken(target.Id, target.Fingerprint, out var trustToken))
             throw new UnauthorizedAccessException("目标设备信任已被撤销。");
 
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, trustToken);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            trustToken,
+            outgoingSession.CancellationToken);
         var desktopSessionId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
         using var remote = DefaultInputWebSocketFactory.CreateClientSocket(_identity, target);
         remote.Options.AddSubProtocol(RemoteDesktopProtocol.SubProtocol);
@@ -280,7 +300,20 @@ public sealed class RemoteDesktopService : IDisposable
         while (!cancellationToken.IsCancellationRequested && socket.State == WebSocketState.Open)
         {
             if (!_settings.Snapshot.RemoteDesktopEnabled) break;
-            var payload = await ReceiveControlMessageAsync(socket, cancellationToken);
+            byte[]? payload;
+            using (var lease = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken))
+            {
+                lease.CancelAfter(RemoteDesktopProtocol.InputLeaseWindow);
+                try
+                {
+                    payload = await ReceiveControlMessageAsync(socket, lease.Token);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    _ = _injector.ReleaseAll();
+                    throw new TimeoutException("远程桌面输入心跳超时，已释放所有按键。", new OperationCanceledException());
+                }
+            }
             if (payload is null) break;
             if (Stopwatch.GetElapsedTime(rateWindow) >= TimeSpan.FromSeconds(1))
             {
@@ -301,6 +334,8 @@ public sealed class RemoteDesktopService : IDisposable
     {
         switch (message.Type)
         {
+            case "heartbeat":
+                return;
             case "pointer":
                 MovePointer(message, displayBounds, required: true);
                 return;

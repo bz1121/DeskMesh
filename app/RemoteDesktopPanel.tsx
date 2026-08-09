@@ -3,18 +3,22 @@ import {
   type KeyboardEvent,
   type PointerEvent,
   type WheelEvent,
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
+  ApiError,
   apiRequest,
   type ConnectionState,
   getSessionToken,
   type PeerSummary,
   type RemoteDesktopDisplay,
+  type RemoteDesktopDisplayCatalog,
   type RemoteDesktopSettings,
   jsonRequest,
 } from "../web/api";
@@ -26,11 +30,33 @@ type RemoteDesktopPanelProps = {
     tone: "success" | "warning" | "danger";
     message: string;
   }) => void;
+  onSeamlessSessionChange: (session: SeamlessSessionSnapshot | null) => void;
+};
+
+export type RemoteDesktopPhase =
+  | "idle"
+  | "loadingDisplays"
+  | "connecting"
+  | "waitingFirstFrame"
+  | "connected"
+  | "error";
+
+export type SeamlessSessionSnapshot = {
+  targetDeviceId: string;
+  targetDeviceName: string;
+  phase: RemoteDesktopPhase;
+  message: string;
+};
+
+export type RemoteDesktopPanelHandle = {
+  startSeamless: (targetDeviceId: string) => void;
+  toggleSeamless: (targetDeviceId?: string) => void;
+  stopSeamless: (reason?: string) => void;
 };
 
 type StreamHeader = {
   type: "hello";
-  protocolVersion: number;
+  protocolVersion: 2;
   display: RemoteDesktopDisplay;
   frameWidth: number;
   frameHeight: number;
@@ -38,25 +64,32 @@ type StreamHeader = {
   jpegQuality: number;
 };
 
-export default function RemoteDesktopPanel({
-  peers,
-  connection,
-  onNotice,
-}: RemoteDesktopPanelProps) {
+const FIRST_FRAME_TIMEOUT_MS = 8_000;
+
+const RemoteDesktopPanel = forwardRef<RemoteDesktopPanelHandle, RemoteDesktopPanelProps>(
+  function RemoteDesktopPanel(
+    { peers, connection, onNotice, onSeamlessSessionChange },
+    ref,
+  ) {
   const [settings, setSettings] = useState<RemoteDesktopSettings>({
-    enabled: true,
+    enabled: false,
     framesPerSecond: 30,
     jpegQuality: 60,
   });
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [targetId, setTargetId] = useState("");
   const [displays, setDisplays] = useState<RemoteDesktopDisplay[]>([]);
   const [displayIndex, setDisplayIndex] = useState(0);
+  const [displayGeneration, setDisplayGeneration] = useState<number | null>(null);
   const [loadingDisplays, setLoadingDisplays] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [phase, setPhase] = useState<"idle" | "connecting" | "connected" | "error">("idle");
+  const [phase, setPhase] = useState<RemoteDesktopPhase>("idle");
   const [message, setMessage] = useState("选择一台在线设备并读取屏幕。");
   const [streamHeader, setStreamHeader] = useState<StreamHeader | null>(null);
   const [actualFps, setActualFps] = useState(0);
+  const [seamlessSession, setSeamlessSession] = useState(false);
+  const [seamlessOverlay, setSeamlessOverlay] = useState(false);
+  const [activeTargetName, setActiveTargetName] = useState("");
   const socketRef = useRef<WebSocket | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -66,6 +99,14 @@ export default function RemoteDesktopPanel({
   const pointerAnimation = useRef(0);
   const displayRequest = useRef(0);
   const frameMeter = useRef({ startedAt: 0, frames: 0 });
+  const firstFrameTimer = useRef(0);
+  const heartbeatTimer = useRef(0);
+  const firstFrameDrawn = useRef(false);
+  const streamAttempt = useRef(0);
+  const seamlessSessionRef = useRef(false);
+  const activeTargetIdRef = useRef("");
+  const activeTargetNameRef = useRef("");
+  const returnFocusRef = useRef<HTMLElement | null>(null);
 
   const capablePeers = useMemo(
     () =>
@@ -86,103 +127,236 @@ export default function RemoteDesktopPanel({
       .then((value) => {
         if (!stopped) setSettings(value);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => {
+        if (!stopped) setSettingsLoaded(true);
+      });
     return () => {
       stopped = true;
     };
   }, []);
 
-  const disconnect = useCallback((reason = "远程桌面连接已关闭。") => {
+  const clearFirstFrameTimer = useCallback(() => {
+    window.clearTimeout(firstFrameTimer.current);
+    firstFrameTimer.current = 0;
+  }, []);
+
+  const clearCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    canvas.getContext("2d", { alpha: false })?.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.width = 1;
+    canvas.height = 1;
+  }, []);
+
+  const closeTransport = useCallback(() => {
+    clearFirstFrameTimer();
+    window.clearInterval(heartbeatTimer.current);
+    heartbeatTimer.current = 0;
     const socket = socketRef.current;
     socketRef.current = null;
-    if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, "用户关闭远程桌面");
+    if (socket?.readyState === WebSocket.OPEN) {
+      try {
+        socket.send(JSON.stringify({ type: "release" }));
+      } catch {
+        // Closing the socket below is the final release fallback.
+      }
+    }
+    if (socket && socket.readyState < WebSocket.CLOSING) {
+      socket.close(1000, "用户关闭远程桌面");
+    }
     window.cancelAnimationFrame(pointerAnimation.current);
     pointerAnimation.current = 0;
     pendingFrame.current = null;
+    latestPointer.current = null;
     frameMeter.current = { startedAt: 0, frames: 0 };
+    firstFrameDrawn.current = false;
     setActualFps(0);
     setStreamHeader(null);
-    setPhase("idle");
+  }, [clearFirstFrameTimer]);
+
+  const endSession = useCallback((
+    reason: string,
+    tone?: "success" | "warning" | "danger",
+  ) => {
+    const wasSeamless = seamlessSessionRef.current;
+    streamAttempt.current += 1;
+    displayRequest.current += 1;
+    closeTransport();
+    clearCanvas();
+    seamlessSessionRef.current = false;
+    activeTargetIdRef.current = "";
+    activeTargetNameRef.current = "";
+    setSeamlessSession(false);
+    setSeamlessOverlay(false);
+    setActiveTargetName("");
+    setLoadingDisplays(false);
+    setPhase(tone === "danger" || tone === "warning" ? "error" : "idle");
     setMessage(reason);
-  }, []);
+    if (wasSeamless && tone) onNotice({ tone, message: reason });
+    if (wasSeamless) {
+      const returnFocus = returnFocusRef.current;
+      returnFocusRef.current = null;
+      window.requestAnimationFrame(() => {
+        if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+      });
+    }
+  }, [clearCanvas, closeTransport, onNotice]);
 
-  useEffect(() => () => disconnect("远程桌面已关闭。"), [disconnect]);
+  const stopSeamless = useCallback((reason = "已返回本机。") => {
+    if (!seamlessSessionRef.current) return;
+    endSession(reason, "success");
+  }, [endSession]);
 
-  const loadDisplays = useCallback(async (selectedTargetId = targetId) => {
-    const requestId = ++displayRequest.current;
-    if (!selectedTargetId) {
-      setDisplays([]);
+  useEffect(() => {
+    if (!seamlessSession || !targetId) {
+      onSeamlessSessionChange(null);
       return;
     }
-    setLoadingDisplays(true);
-    try {
-      const result = await apiRequest<RemoteDesktopDisplay[]>(
-        `/api/v1/remote-desktop/displays?targetDeviceId=${encodeURIComponent(selectedTargetId)}`,
-        {},
-        10_000,
-      );
-      if (requestId !== displayRequest.current) return;
-      setDisplays(result);
-      setDisplayIndex(result.find((display) => display.primary)?.index ?? result[0]?.index ?? 0);
-      setMessage(result.length ? "屏幕信息已读取，可以开始连接。" : "远端没有可用屏幕。");
-    } catch (error) {
-      if (requestId !== displayRequest.current) return;
-      setDisplays([]);
-      setPhase("error");
-      setMessage(error instanceof Error ? error.message : "无法读取远端屏幕。");
-    } finally {
-      if (requestId === displayRequest.current) setLoadingDisplays(false);
-    }
-  }, [targetId]);
+    onSeamlessSessionChange({
+      targetDeviceId: targetId,
+      targetDeviceName: activeTargetName || targetId,
+      phase,
+      message,
+    });
+  }, [activeTargetName, message, onSeamlessSessionChange, phase, seamlessSession, targetId]);
+
+  useEffect(() => {
+    if (!seamlessOverlay) return;
+    const handleEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      stopSeamless("已按 Esc 返回本机。");
+    };
+    window.addEventListener("keydown", handleEscape, true);
+    return () => window.removeEventListener("keydown", handleEscape, true);
+  }, [seamlessOverlay, stopSeamless]);
+
+  useEffect(() => () => {
+    streamAttempt.current += 1;
+    displayRequest.current += 1;
+    closeTransport();
+    clearCanvas();
+  }, [clearCanvas, closeTransport]);
 
   const drawPendingFrames = useCallback(async () => {
     if (drawingFrame.current) return;
     drawingFrame.current = true;
+    let decodedAttempt = streamAttempt.current;
     try {
       while (pendingFrame.current) {
+        const attempt = streamAttempt.current;
+        decodedAttempt = attempt;
         const bytes = pendingFrame.current;
         pendingFrame.current = null;
         const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/jpeg" }));
-        const canvas = canvasRef.current;
-        if (canvas) {
-          if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
-          if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
-          canvas.getContext("2d", { alpha: false })?.drawImage(bitmap, 0, 0);
+        if (attempt !== streamAttempt.current) {
+          bitmap.close();
+          continue;
         }
+        const canvas = canvasRef.current;
+        const context = canvas?.getContext("2d", { alpha: false });
+        if (!canvas || !context) {
+          bitmap.close();
+          throw new Error("Canvas unavailable");
+        }
+        if (canvas.width !== bitmap.width) canvas.width = bitmap.width;
+        if (canvas.height !== bitmap.height) canvas.height = bitmap.height;
+        context.drawImage(bitmap, 0, 0);
         bitmap.close();
+
+        if (!firstFrameDrawn.current) {
+          firstFrameDrawn.current = true;
+          clearFirstFrameTimer();
+          setPhase("connected");
+          setMessage(`正在查看 ${activeTargetNameRef.current || "远端设备"}`);
+          if (seamlessSessionRef.current) setSeamlessOverlay(true);
+          window.requestAnimationFrame(() => canvas.focus({ preventScroll: true }));
+        }
       }
     } catch {
-      setPhase("error");
-      setMessage("浏览器无法解码远程画面。");
+      // A decode from a superseded socket must never tear down the newer
+      // session that replaced it.
+      if (decodedAttempt !== streamAttempt.current) return;
+      const wasSeamless = seamlessSessionRef.current;
+      endSession(
+        wasSeamless
+          ? "收到画面但浏览器解码失败，已退出无缝模式；可改用直接信号模式。"
+          : "浏览器无法解码远程画面。",
+        "danger",
+      );
     } finally {
       drawingFrame.current = false;
+      // A new socket may have queued its first frame while the previous
+      // decode was still finishing. Drain it now instead of waiting for a
+      // second frame that might never arrive.
+      if (pendingFrame.current) void drawPendingFrames();
     }
-  }, []);
+  }, [clearFirstFrameTimer, endSession]);
 
-  async function connect() {
-    if (!targetId || displays.length === 0) return;
-    disconnect("正在建立远程桌面连接。");
+  const startStream = useCallback(async (
+    selectedTargetId: string,
+    selectedDisplayIndex: number,
+    selectedGeneration: number,
+    isSeamless: boolean,
+    targetName: string,
+  ) => {
+    streamAttempt.current += 1;
+    const attempt = streamAttempt.current;
+    closeTransport();
+    clearCanvas();
+    seamlessSessionRef.current = isSeamless;
+    activeTargetIdRef.current = selectedTargetId;
+    activeTargetNameRef.current = targetName;
+    setSeamlessSession(isSeamless);
+    setSeamlessOverlay(false);
+    setActiveTargetName(targetName);
+    setTargetId(selectedTargetId);
+    setDisplayIndex(selectedDisplayIndex);
     setPhase("connecting");
-    setMessage("正在通过加密局域网连接远程画面…");
+    setMessage(`正在通过加密局域网连接 ${targetName}…`);
+    firstFrameTimer.current = window.setTimeout(() => {
+      if (attempt !== streamAttempt.current || firstFrameDrawn.current) return;
+      endSession(
+        `已连接到 ${targetName}，但 8 秒内没有收到画面。显示器未切源，本机控制保持不变；可重试或改用直接信号模式。`,
+        "danger",
+      );
+    }, FIRST_FRAME_TIMEOUT_MS);
+
     try {
       const url = new URL("/api/v1/remote-desktop/stream", window.location.href);
       url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-      url.searchParams.set("targetDeviceId", targetId);
-      url.searchParams.set("displayIndex", String(displayIndex));
+      url.searchParams.set("targetDeviceId", selectedTargetId);
+      url.searchParams.set("displayIndex", String(selectedDisplayIndex));
+      url.searchParams.set("generation", String(selectedGeneration));
       url.searchParams.set("token", await getSessionToken());
-      const socket = new WebSocket(url, "lanswitch.remote-desktop.v1");
+      if (attempt !== streamAttempt.current) return;
+
+      const socket = new WebSocket(url, "lanswitch.remote-desktop.v2");
       socket.binaryType = "arraybuffer";
       socketRef.current = socket;
+      socket.addEventListener("open", () => {
+        if (socketRef.current !== socket || attempt !== streamAttempt.current) return;
+        const heartbeat = () => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: "heartbeat" }));
+          }
+        };
+        heartbeat();
+        heartbeatTimer.current = window.setInterval(heartbeat, 500);
+      });
       socket.addEventListener("message", (event) => {
+        if (socketRef.current !== socket || attempt !== streamAttempt.current) return;
         if (typeof event.data === "string") {
           try {
             const header = JSON.parse(event.data) as StreamHeader;
-            if (header.type !== "hello" || header.protocolVersion !== 1) throw new Error();
+            if (header.type !== "hello" || header.protocolVersion !== 2) throw new Error();
             setStreamHeader(header);
-            setPhase("connected");
-            setMessage(`正在查看 ${header.display.deviceName} · ${header.framesPerSecond} FPS`);
+            setPhase("waitingFirstFrame");
+            setMessage(`已连接 ${targetName}，正在等待第一帧…`);
           } catch {
-            socket.close(1002, "远程桌面协议无效");
+            endSession("远程桌面协议无效，已返回本机。", "danger");
           }
           return;
         }
@@ -201,23 +375,141 @@ export default function RemoteDesktopPanel({
         }
       });
       socket.addEventListener("close", (event) => {
-        if (socketRef.current !== socket) return;
-        socketRef.current = null;
-        setStreamHeader(null);
-        setPhase(event.code === 1000 ? "idle" : "error");
-        setMessage(event.reason || "远程桌面连接已断开。");
+        if (socketRef.current !== socket || attempt !== streamAttempt.current) return;
+        const reason = event.reason || `${targetName} 的远程画面已断开，已返回本机。`;
+        endSession(reason, isSeamless ? "warning" : event.code === 1000 ? undefined : "danger");
       });
       socket.addEventListener("error", () => {
-        if (socketRef.current === socket) {
-          setPhase("error");
-          setMessage("远程桌面连接失败，请查看诊断日志。");
-        }
-        socket.close();
+        if (socketRef.current !== socket || attempt !== streamAttempt.current) return;
+        endSession("远程桌面连接失败，显示器未切源，本机控制保持不变。", "danger");
       });
     } catch (error) {
-      setPhase("error");
-      setMessage(error instanceof Error ? error.message : "无法建立远程桌面连接。");
+      if (attempt !== streamAttempt.current) return;
+      endSession(
+        error instanceof Error ? error.message : "无法建立远程桌面连接。",
+        "danger",
+      );
     }
+  }, [clearCanvas, closeTransport, drawPendingFrames, endSession]);
+
+  const loadDisplays = useCallback(async (selectedTargetId = targetId) => {
+    const requestId = ++displayRequest.current;
+    if (!selectedTargetId) {
+      setDisplays([]);
+      setDisplayGeneration(null);
+      return;
+    }
+    setDisplayGeneration(null);
+    setLoadingDisplays(true);
+    try {
+      const result = await apiRequest<RemoteDesktopDisplayCatalog>(
+        `/api/v1/remote-desktop/displays?targetDeviceId=${encodeURIComponent(selectedTargetId)}`,
+        {},
+        10_000,
+      );
+      if (requestId !== displayRequest.current) return;
+      setDisplays(result.displays);
+      setDisplayGeneration(result.generation);
+      setDisplayIndex(result.displays.find((display) => display.primary)?.index ?? result.displays[0]?.index ?? 0);
+      setMessage(result.displays.length ? "屏幕信息已读取，可以开始连接。" : "远端没有可用屏幕。");
+    } catch (error) {
+      if (requestId !== displayRequest.current) return;
+      setDisplays([]);
+      setDisplayGeneration(null);
+      setPhase("error");
+      setMessage(describeRemoteDesktopError(error, "远端设备"));
+    } finally {
+      if (requestId === displayRequest.current) setLoadingDisplays(false);
+    }
+  }, [targetId]);
+
+  const startSeamless = useCallback(async (selectedTargetId: string) => {
+    if (!selectedTargetId) return;
+    if (
+      seamlessSessionRef.current &&
+      activeTargetIdRef.current === selectedTargetId
+    ) {
+      return;
+    }
+    const peer = capablePeers.find((candidate) => candidate.id === selectedTargetId);
+    if (!peer) {
+      onNotice({
+        tone: "warning",
+        message: "目标设备当前不可用于无缝远程；请确认它已配对、在线并支持远程桌面。",
+      });
+      return;
+    }
+
+    returnFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    streamAttempt.current += 1;
+    displayRequest.current += 1;
+    closeTransport();
+    clearCanvas();
+    seamlessSessionRef.current = true;
+    activeTargetIdRef.current = selectedTargetId;
+    activeTargetNameRef.current = peer.name || selectedTargetId;
+    setSeamlessSession(true);
+    setSeamlessOverlay(false);
+    setActiveTargetName(peer.name || selectedTargetId);
+    setTargetId(selectedTargetId);
+    setDisplays([]);
+    setDisplayGeneration(null);
+    setPhase("loadingDisplays");
+    setMessage(`正在读取 ${peer.name || "远端设备"} 的屏幕信息…`);
+
+    const requestId = ++displayRequest.current;
+    setLoadingDisplays(true);
+    try {
+      const result = await apiRequest<RemoteDesktopDisplayCatalog>(
+        `/api/v1/remote-desktop/displays?targetDeviceId=${encodeURIComponent(selectedTargetId)}`,
+        {},
+        10_000,
+      );
+      if (requestId !== displayRequest.current || !seamlessSessionRef.current) return;
+      if (result.displays.length === 0) {
+        endSession("对方没有可用屏幕，无法进入无缝模式。", "warning");
+        return;
+      }
+      const nextDisplayIndex =
+        result.displays.find((display) => display.primary)?.index ?? result.displays[0].index;
+      setDisplays(result.displays);
+      setDisplayGeneration(result.generation);
+      setDisplayIndex(nextDisplayIndex);
+      await startStream(
+        selectedTargetId,
+        nextDisplayIndex,
+        result.generation,
+        true,
+        peer.name || selectedTargetId,
+      );
+    } catch (error) {
+      if (requestId !== displayRequest.current || !seamlessSessionRef.current) return;
+      endSession(describeRemoteDesktopError(error, peer.name || "对方"), "danger");
+    } finally {
+      if (requestId === displayRequest.current) setLoadingDisplays(false);
+    }
+  }, [capablePeers, clearCanvas, closeTransport, endSession, onNotice, startStream]);
+
+  const toggleSeamless = useCallback((selectedTargetId?: string) => {
+    if (seamlessSessionRef.current) {
+      stopSeamless("切换快捷键已返回本机。");
+      return;
+    }
+    if (selectedTargetId) void startSeamless(selectedTargetId);
+  }, [startSeamless, stopSeamless]);
+
+  useImperativeHandle(
+    ref,
+    () => ({ startSeamless, toggleSeamless, stopSeamless }),
+    [startSeamless, stopSeamless, toggleSeamless],
+  );
+
+  async function connect() {
+    if (!targetId || displays.length === 0 || displayGeneration === null) return;
+    const targetName = peers.find((peer) => peer.id === targetId)?.name || targetId;
+    await startStream(targetId, displayIndex, displayGeneration, false, targetName);
   }
 
   async function saveSettings(event: FormEvent<HTMLFormElement>) {
@@ -248,7 +540,7 @@ export default function RemoteDesktopPanel({
   function changeTarget(nextTargetId: string) {
     displayRequest.current += 1;
     setLoadingDisplays(false);
-    disconnect("请选择屏幕并重新连接。");
+    endSession("请选择屏幕并重新连接。");
     setTargetId(nextTargetId);
     setDisplays([]);
     setDisplayIndex(0);
@@ -313,6 +605,12 @@ export default function RemoteDesktopPanel({
     send({ type: "key", virtualKey, down, extended: isExtendedKey(event.code) });
   }
 
+  const sessionOpen =
+    phase === "loadingDisplays" ||
+    phase === "connecting" ||
+    phase === "waitingFirstFrame" ||
+    phase === "connected";
+
   return (
     <section id="remote-desktop" className="content-section remote-desktop-section" aria-labelledby="remote-desktop-title">
       <div className="section-heading">
@@ -334,7 +632,7 @@ export default function RemoteDesktopPanel({
             type="checkbox"
             aria-label="允许已配对设备查看和控制本机"
             checked={settings.enabled}
-            disabled={connection !== "online" || saving}
+            disabled={!settingsLoaded || connection !== "online" || saving}
             onChange={(event) => setSettings((current) => ({ ...current, enabled: event.target.checked }))}
           />
         </div>
@@ -342,7 +640,7 @@ export default function RemoteDesktopPanel({
           <span>帧率</span>
           <select
             value={settings.framesPerSecond}
-            disabled={saving}
+            disabled={!settingsLoaded || saving}
             onChange={(event) => setSettings((current) => ({ ...current, framesPerSecond: Number(event.target.value) }))}
           >
             <option value={10}>10 FPS（省流量）</option>
@@ -356,7 +654,7 @@ export default function RemoteDesktopPanel({
           <span>画质</span>
           <select
             value={settings.jpegQuality}
-            disabled={saving}
+            disabled={!settingsLoaded || saving}
             onChange={(event) => setSettings((current) => ({ ...current, jpegQuality: Number(event.target.value) }))}
           >
             <option value={45}>节省带宽</option>
@@ -365,15 +663,15 @@ export default function RemoteDesktopPanel({
             <option value={85}>很清晰</option>
           </select>
         </label>
-        <button type="submit" className="secondary-button" disabled={connection !== "online" || saving}>
-          {saving ? "保存中…" : "保存权限与画质"}
+        <button type="submit" className="secondary-button" disabled={!settingsLoaded || connection !== "online" || saving}>
+          {!settingsLoaded ? "正在读取设置…" : saving ? "保存中…" : "保存权限与画质"}
         </button>
       </form>
 
       <div className="remote-desktop-toolbar">
         <label>
           <span>远程设备</span>
-          <select value={targetId} onChange={(event) => changeTarget(event.target.value)} disabled={phase === "connected"}>
+          <select value={targetId} onChange={(event) => changeTarget(event.target.value)} disabled={sessionOpen}>
             <option value="">选择在线设备</option>
             {capablePeers.map((peer) => <option key={peer.id} value={peer.id}>{peer.name || peer.id}</option>)}
           </select>
@@ -383,7 +681,7 @@ export default function RemoteDesktopPanel({
           <select
             value={displayIndex}
             onChange={(event) => setDisplayIndex(Number(event.target.value))}
-            disabled={!displays.length || phase === "connected"}
+            disabled={!displays.length || sessionOpen}
           >
             {displays.length === 0 ? <option value={0}>暂无屏幕</option> : displays.map((display) => (
               <option key={`${display.deviceName}-${display.index}`} value={display.index}>
@@ -392,11 +690,11 @@ export default function RemoteDesktopPanel({
             ))}
           </select>
         </label>
-        <button type="button" className="secondary-button" onClick={() => void loadDisplays()} disabled={!targetId || loadingDisplays || phase === "connected"}>
+        <button type="button" className="secondary-button" onClick={() => void loadDisplays()} disabled={!targetId || loadingDisplays || sessionOpen}>
           {loadingDisplays ? "读取中…" : "刷新屏幕"}
         </button>
-        {phase === "connected" || phase === "connecting" ? (
-          <button type="button" className="danger-button" onClick={() => disconnect()}>断开远程桌面</button>
+        {sessionOpen ? (
+          <button type="button" className="danger-button" onClick={() => endSession("远程桌面已关闭。")}>断开远程桌面</button>
         ) : (
           <button type="button" className="primary-button" onClick={() => void connect()} disabled={!targetId || displays.length === 0}>
             打开远程桌面
@@ -404,8 +702,12 @@ export default function RemoteDesktopPanel({
         )}
       </div>
 
-      <div ref={viewerRef} className={`remote-viewer phase-${phase}`}>
-        <div className="remote-viewer-status">
+      <div
+        ref={viewerRef}
+        className={`remote-viewer phase-${phase}${seamlessOverlay ? " is-seamless-overlay" : ""}`}
+        aria-busy={phase !== "idle" && phase !== "connected" && phase !== "error"}
+      >
+        <div className="remote-viewer-status" role="status" aria-live="polite">
           <span className={`status-dot ${phase === "connected" ? "online" : ""}`} />
           <strong>{message}</strong>
           {streamHeader ? (
@@ -414,9 +716,18 @@ export default function RemoteDesktopPanel({
               {actualFps > 0 ? ` · 实际 ${actualFps} FPS / 目标 ${streamHeader.framesPerSecond} FPS` : ""}
             </small>
           ) : null}
-          <button type="button" className="small-button" disabled={phase !== "connected"} onClick={() => void viewerRef.current?.requestFullscreen()}>
-            全屏
-          </button>
+          {seamlessOverlay ? (
+            <>
+              <span className="remote-overlay-hint">按 Esc 返回本机</span>
+              <button type="button" className="danger-button remote-return-button" onClick={() => stopSeamless()}>
+                返回本机
+              </button>
+            </>
+          ) : (
+            <button type="button" className="small-button" disabled={phase !== "connected"} onClick={() => void viewerRef.current?.requestFullscreen()}>
+              全屏
+            </button>
+          )}
         </div>
         <div className="remote-canvas-wrap">
           <canvas
@@ -435,8 +746,8 @@ export default function RemoteDesktopPanel({
           />
           {phase !== "connected" ? (
             <div className="remote-viewer-empty">
-              <strong>{phase === "connecting" ? "正在建立加密连接…" : "远程画面尚未打开"}</strong>
-              <span>选择设备和屏幕后开始连接。</span>
+              <strong>{remotePhaseTitle(phase)}</strong>
+              <span>{remotePhaseDetail(phase)}</span>
             </div>
           ) : null}
         </div>
@@ -446,6 +757,35 @@ export default function RemoteDesktopPanel({
       </p>
     </section>
   );
+  },
+);
+
+export default RemoteDesktopPanel;
+
+function describeRemoteDesktopError(error: unknown, targetName: string) {
+  if (error instanceof ApiError && error.status === 409) {
+    return `对方未允许远程桌面，请在 ${targetName} 的 DeskMesh 开启“允许已配对设备查看和控制本机”。`;
+  }
+  return error instanceof Error ? error.message : `无法读取 ${targetName} 的远程屏幕。`;
+}
+
+function remotePhaseTitle(phase: RemoteDesktopPhase) {
+  const labels: Record<RemoteDesktopPhase, string> = {
+    idle: "远程画面尚未打开",
+    loadingDisplays: "正在读取远端屏幕…",
+    connecting: "正在建立加密连接…",
+    waitingFirstFrame: "已连接，正在等待第一帧…",
+    connected: "远程画面已连接",
+    error: "远程画面不可用",
+  };
+  return labels[phase];
+}
+
+function remotePhaseDetail(phase: RemoteDesktopPhase) {
+  if (phase === "waitingFirstFrame") return "收到并成功绘制第一张画面后才会进入无缝全屏。";
+  if (phase === "loadingDisplays" || phase === "connecting") return "显示器不会切换输入，本机控制保持不变。";
+  if (phase === "error") return "可重试，或在上方改用直接信号模式。";
+  return "选择设备和屏幕后开始连接。";
 }
 
 function browserKeyToVirtualKey(code: string, key: string) {

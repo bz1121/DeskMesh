@@ -5,14 +5,15 @@ namespace LanSwitch.Agent.Services;
 
 internal static class RemoteDesktopProtocol
 {
-    internal const int Version = 1;
-    internal const string SubProtocol = "lanswitch.remote-desktop.v1";
+    internal const int Version = 2;
+    internal const string SubProtocol = "lanswitch.remote-desktop.v2";
     internal const int MaximumControlMessageBytes = 16 * 1024;
     internal const int MaximumFrameBytes = 8 * 1024 * 1024;
     internal const int MaximumFrameWidth = 1920;
     internal const int MaximumFrameHeight = 1080;
     internal const long MaximumSourcePixels = 40_000_000;
     internal const int MaximumInputMessagesPerSecond = 500;
+    internal static readonly TimeSpan InputLeaseWindow = TimeSpan.FromSeconds(2);
     internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     internal static bool IsValidSessionId(string? value) =>
@@ -109,6 +110,10 @@ public sealed record RemoteDesktopDisplay(
     int Left,
     int Top,
     bool Primary);
+
+public sealed record RemoteDesktopDisplayCatalog(
+    long Generation,
+    IReadOnlyList<RemoteDesktopDisplay> Displays);
 
 internal sealed record RemoteDesktopStreamHeader(
     string Type,

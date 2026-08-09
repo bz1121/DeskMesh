@@ -27,7 +27,7 @@ public static class RemoteDesktopEndpoints
             string targetDeviceId,
             RemoteDesktopService desktop,
             CancellationToken cancellationToken) =>
-            Results.Ok(await desktop.GetRemoteDisplaysAsync(targetDeviceId, cancellationToken)));
+            Results.Ok(await desktop.GetRemoteDisplayCatalogAsync(targetDeviceId, cancellationToken)));
         app.Map("/api/v1/remote-desktop/stream", HandleBrowserStreamAsync);
 
         app.MapGet("/peer/v1/remote-desktop/displays", (
@@ -49,7 +49,8 @@ public static class RemoteDesktopEndpoints
         var state = context.RequestServices.GetRequiredService<AppState>();
         if (!IsWebSocketRequest(context, state.CsrfToken) ||
             string.IsNullOrWhiteSpace(context.Request.Query["targetDeviceId"]) ||
-            !int.TryParse(context.Request.Query["displayIndex"], out var displayIndex) || displayIndex < 0)
+            !int.TryParse(context.Request.Query["displayIndex"], out var displayIndex) || displayIndex < 0 ||
+            !long.TryParse(context.Request.Query["generation"], out var generation) || generation < 0)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
@@ -60,7 +61,12 @@ public static class RemoteDesktopEndpoints
         try
         {
             var desktop = context.RequestServices.GetRequiredService<RemoteDesktopService>();
-            await desktop.ProxyAsync(socket, targetDeviceId, displayIndex, context.RequestAborted);
+            await desktop.ProxyAsync(
+                socket,
+                targetDeviceId,
+                displayIndex,
+                generation,
+                context.RequestAborted);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

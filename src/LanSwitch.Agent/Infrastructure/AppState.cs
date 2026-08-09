@@ -78,6 +78,7 @@ public sealed class AppState
             network = new { scope = "private-lan", addresses },
             webPort = _options.WebPort,
             peerPort = _options.PeerPort,
+            switchMode = config.SwitchMode,
             focus,
             clipboard,
             display,

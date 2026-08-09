@@ -28,10 +28,15 @@ import {
   resultAccepted,
   resetSessionToken,
   type SecurityStatus,
+  type SwitchMode,
+  type SwitchModeSettings,
   unwrapList,
   type WriteResult,
 } from "../web/api";
-import RemoteDesktopPanel from "./RemoteDesktopPanel";
+import RemoteDesktopPanel, {
+  type RemoteDesktopPanelHandle,
+  type SeamlessSessionSnapshot,
+} from "./RemoteDesktopPanel";
 
 const DEFAULT_POLICY: ClipboardPolicy = {
   enabled: false,
@@ -105,6 +110,11 @@ export default function ControlConsole() {
   const [toggleHotkey, setToggleHotkey] = useState("Ctrl+Alt+Shift+F12");
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [audioVolume, setAudioVolume] = useState(100);
+  const [switchMode, setSwitchMode] = useState<SwitchMode>("directSignal");
+  const [switchModeLoaded, setSwitchModeLoaded] = useState(false);
+  const [seamlessSession, setSeamlessSession] =
+    useState<SeamlessSessionSnapshot | null>(null);
+  const seamlessSessionRef = useRef<SeamlessSessionSnapshot | null>(null);
   const refreshing = useRef(false);
   const hotkeysDirty = useRef(false);
   const audioDirty = useRef(false);
@@ -114,6 +124,8 @@ export default function ControlConsole() {
   const fileDragDepth = useRef(0);
   const fileUploadRequest = useRef<XMLHttpRequest | null>(null);
   const fileUploadCancelRequested = useRef(false);
+  const remoteDesktopRef = useRef<RemoteDesktopPanelHandle>(null);
+  const peersRef = useRef<PeerSummary[]>([]);
 
   const refreshSnapshot = useCallback(async (quiet = false) => {
     if (refreshing.current) return;
@@ -123,7 +135,7 @@ export default function ControlConsole() {
       const status = await apiRequest<AgentStatus>("/api/v1/status");
       setConnection("online");
 
-      const [peersResult, clipboardResult, offersResult, displaysResult, securityResult, hotkeysResult, audioResult, diagnosticsResult] =
+      const [peersResult, clipboardResult, offersResult, displaysResult, securityResult, hotkeysResult, audioResult, diagnosticsResult, switchModeResult] =
         await Promise.allSettled([
           apiRequest<unknown>("/api/v1/peers"),
           apiRequest<ClipboardSnapshot | ClipboardPolicy>("/api/v1/clipboard"),
@@ -135,12 +147,14 @@ export default function ControlConsole() {
           apiRequest<HotkeySettings>("/api/v1/hotkeys"),
           apiRequest<AudioSettings>("/api/v1/audio"),
           apiRequest<unknown>("/api/v1/diagnostics"),
+          apiRequest<SwitchModeSettings>("/api/v1/focus/mode"),
         ]);
 
       const peers =
         peersResult.status === "fulfilled"
           ? unwrapList<PeerSummary>(peersResult.value, ["peers", "items", "devices"])
           : [];
+      peersRef.current = peers;
       const offers =
         offersResult.status === "fulfilled"
           ? unwrapList<FileOffer>(offersResult.value, ["offers", "items", "transfers"])
@@ -211,6 +225,12 @@ export default function ControlConsole() {
         setAudioEnabled(audio.enabled);
         setAudioVolume(audio.volume);
       }
+      if (switchModeResult.status === "fulfilled") {
+        setSwitchMode(normalizeSwitchMode(switchModeResult.value.mode));
+      } else if (status.switchMode) {
+        setSwitchMode(normalizeSwitchMode(status.switchMode));
+      }
+      setSwitchModeLoaded(true);
       setSnapshot({ status, peers, clipboard, offers, displays, security, hotkeys, audio, diagnostics });
       setLastSync(new Date());
     } catch (error) {
@@ -242,6 +262,67 @@ export default function ControlConsole() {
     let retryTimer = 0;
     let refreshTimer = 0;
 
+    const performSeamlessHotkeyRequest = (targetDeviceId: string) => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      if (seamlessSessionRef.current) {
+        remoteDesktopRef.current?.stopSeamless("切换快捷键已返回本机。");
+        return;
+      }
+      if (targetDeviceId) {
+        remoteDesktopRef.current?.toggleSeamless(targetDeviceId);
+        return;
+      }
+      const candidates = peersRef.current.filter(
+        (peer) =>
+          peer.online &&
+          peer.paired !== false &&
+          (peer.capabilities ?? []).some(
+            (capability) => capability.toLowerCase() === "remote-desktop",
+          ),
+      );
+      if (candidates.length === 1) {
+        remoteDesktopRef.current?.toggleSeamless(candidates[0].id);
+        return;
+      }
+      setNotice({
+        tone: "warning",
+        message:
+          candidates.length === 0
+            ? "快捷键没有找到可用的无缝远程设备；请确认对端已配对并在线。"
+            : "有多台设备可用于无缝远程，请在设备列表中选择目标。",
+      });
+      document
+        .getElementById("devices")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+
+    const claimSeamlessHotkeyRequest = async (
+      targetDeviceId: string,
+      requestId: string,
+    ) => {
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      const performIfCurrent = async () => {
+        const current = await apiRequest<SwitchModeSettings>("/api/v1/focus/mode");
+        if (current.mode !== "seamlessRemote") return;
+        performSeamlessHotkeyRequest(targetDeviceId);
+      };
+      if (!("locks" in navigator)) {
+        await performIfCurrent();
+        return;
+      }
+      await navigator.locks.request(
+        `deskmesh-seamless-hotkey-${requestId || "legacy"}`,
+        { ifAvailable: true },
+        async (lock) => {
+          if (!lock) return;
+          await performIfCurrent();
+          // The lock is request-specific, so a second real hotkey request is
+          // not delayed while duplicate delivery of this request is suppressed.
+          await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+        },
+      );
+    };
+
     const connect = async () => {
       if (stopped) return;
       const url = new URL("/api/v1/events", window.location.href);
@@ -252,7 +333,24 @@ export default function ControlConsole() {
         if (stopped) return;
         socket = new WebSocket(url);
         socket.addEventListener("open", () => setEventsConnected(true));
-        socket.addEventListener("message", () => {
+        socket.addEventListener("message", (event) => {
+          if (typeof event.data === "string") {
+            try {
+              const message = JSON.parse(event.data) as {
+                kind?: unknown;
+                payload?: unknown;
+              };
+              if (message.kind === "seamless-switch-request") {
+                const targetDeviceId = eventTargetDeviceId(message.payload);
+                const requestId = eventRequestId(message.payload);
+                void claimSeamlessHotkeyRequest(targetDeviceId, requestId);
+              } else if (message.kind === "seamless-release-request") {
+                remoteDesktopRef.current?.stopSeamless("快捷键已请求返回本机。");
+              }
+            } catch {
+              // State refresh below remains the fallback for non-JSON or future event shapes.
+            }
+          }
           window.clearTimeout(refreshTimer);
           refreshTimer = window.setTimeout(
             () => void refreshSnapshot(true),
@@ -279,6 +377,18 @@ export default function ControlConsole() {
       socket?.close();
     };
   }, [refreshSnapshot]);
+
+  useEffect(() => {
+    if (
+      switchModeLoaded &&
+      switchMode !== "seamlessRemote" &&
+      seamlessSession
+    ) {
+      remoteDesktopRef.current?.stopSeamless(
+        "切换方式已改为直接信号，无缝远程会话已关闭。",
+      );
+    }
+  }, [seamlessSession, switchMode, switchModeLoaded]);
 
   const onlinePeers = useMemo(
     () =>
@@ -333,9 +443,14 @@ export default function ControlConsole() {
   );
 
   const status = snapshot.status;
+  const seamlessSessionActive = seamlessSession !== null;
   const activeDeviceName =
-    status?.focus?.activeDeviceName || status?.deviceName || "等待本机代理";
-  const activeDeviceId = status?.focus?.activeDeviceId;
+    seamlessSession?.targetDeviceName ||
+    status?.focus?.activeDeviceName ||
+    status?.deviceName ||
+    "等待本机代理";
+  const activeDeviceId =
+    seamlessSession?.targetDeviceId || status?.focus?.activeDeviceId;
   const latestClipboard =
     snapshot.clipboard?.latest ?? status?.clipboard?.latest ?? null;
   const security = snapshot.security ?? status?.security ?? null;
@@ -594,6 +709,34 @@ export default function ControlConsole() {
           : "音频跟随已关闭。",
       });
     } catch (error) {
+      setNotice({ tone: "danger", message: getErrorMessage(error) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleSwitchModeChange(nextMode: SwitchMode) {
+    if (nextMode === switchMode || busy === "switch-mode") return;
+    const previousMode = switchMode;
+    setSwitchMode(nextMode);
+    setBusy("switch-mode");
+    setNotice(null);
+    try {
+      const result = await apiRequest<SwitchModeSettings>(
+        "/api/v1/focus/mode",
+        jsonRequest("PUT", { mode: nextMode }),
+      );
+      const savedMode = normalizeSwitchMode(result.mode);
+      setSwitchMode(savedMode);
+      setNotice({
+        tone: "success",
+        message:
+          savedMode === "seamlessRemote"
+            ? "无缝远程模式已启用；控制台标签位于前台并获得焦点时，切换快捷键会打开远程画面。"
+            : "直接信号模式已启用；切换快捷键会联动画面与键鼠。",
+      });
+    } catch (error) {
+      setSwitchMode(previousMode);
       setNotice({ tone: "danger", message: getErrorMessage(error) });
     } finally {
       setBusy(null);
@@ -1006,14 +1149,22 @@ export default function ControlConsole() {
                 <p className="eyebrow">当前控制目标</p>
                 <h2 id="overview-title">{activeDeviceName}</h2>
               </div>
-              <span className={`focus-state ${status?.focus?.isRemote ? "remote" : "local"}`}>
-                {status?.focus?.isRemote ? "远端控制" : "本机控制"}
+              <span
+                className={`focus-state ${seamlessSessionActive || status?.focus?.isRemote ? "remote" : "local"}`}
+              >
+                {seamlessSessionActive
+                  ? "无缝远程"
+                  : status?.focus?.isRemote
+                    ? "远端控制"
+                    : "本机控制"}
               </span>
             </div>
 
             <p className="focus-copy">
-              {connection === "online"
-                ? focusDescription(status)
+              {seamlessSession
+                ? seamlessSession.message
+                : connection === "online"
+                  ? focusDescription(status)
                 : "Agent 上线后，这里会显示真实的控制权状态。"}
             </p>
 
@@ -1022,11 +1173,16 @@ export default function ControlConsole() {
                 className="primary-button light"
                 type="button"
                 disabled={
-                  connection !== "online" ||
-                  !status?.focus?.isRemote ||
-                  busy === "focus-release"
+                  busy === "focus-release" ||
+                  (!seamlessSessionActive &&
+                    (connection !== "online" ||
+                      !status?.focus?.isRemote ||
+                      busy === "focus-release"))
                 }
-                onClick={() =>
+                onClick={() => {
+                  if (seamlessSessionActive) {
+                    remoteDesktopRef.current?.stopSeamless("已返回本机。");
+                  }
                   void runAction(
                     "focus-release",
                     () =>
@@ -1035,10 +1191,14 @@ export default function ControlConsole() {
                         jsonRequest("POST"),
                       ),
                     "控制权已安全回到本机。",
-                  )
-                }
+                  );
+                }}
               >
-                {busy === "focus-release" ? "正在释放…" : "释放到本机"}
+                {seamlessSessionActive
+                  ? "返回本机"
+                  : busy === "focus-release"
+                    ? "正在释放…"
+                    : "释放到本机"}
               </button>
               <span>紧急热键：{security?.emergencyHotkey || "等待 Agent"}</span>
             </div>
@@ -1099,6 +1259,57 @@ export default function ControlConsole() {
             description="切换请求由本机 Agent 验证并执行；离线设备不会被当作可用目标。"
           />
 
+          <fieldset
+            className="switch-mode-panel"
+            disabled={
+              !switchModeLoaded ||
+              connection !== "online" ||
+              busy === "switch-mode" ||
+              seamlessSessionActive ||
+              Boolean(status?.focus?.isRemote)
+            }
+            aria-describedby="switch-mode-help"
+          >
+            <legend>切换方式</legend>
+            <div className="switch-mode-options">
+              <label
+                className={`switch-mode-option ${switchMode === "directSignal" ? "is-selected" : ""}`}
+                aria-label="直接信号"
+              >
+                <input
+                  type="radio"
+                  name="switch-mode"
+                  value="directSignal"
+                  checked={switchMode === "directSignal"}
+                  onChange={() => void handleSwitchModeChange("directSignal")}
+                />
+                <span>
+                  <strong>直接信号</strong>
+                  <small>切换显示器输入和键鼠；保持原生画质，过程中可能短暂黑屏。</small>
+                </span>
+              </label>
+              <label
+                className={`switch-mode-option ${switchMode === "seamlessRemote" ? "is-selected" : ""}`}
+                aria-label="无缝远程"
+              >
+                <input
+                  type="radio"
+                  name="switch-mode"
+                  value="seamlessRemote"
+                  checked={switchMode === "seamlessRemote"}
+                  onChange={() => void handleSwitchModeChange("seamlessRemote")}
+                />
+                <span>
+                  <strong>无缝远程</strong>
+                  <small>显示器保持当前输入；通过加密局域网全屏显示远端画面、声音与输入。</small>
+                </span>
+              </label>
+            </div>
+            <p id="switch-mode-help">
+              直接信号可由全局快捷键独立执行；无缝远程需要本控制台标签保持打开、位于前台并获得焦点，才能响应快捷键并呈现画面。
+            </p>
+          </fieldset>
+
           <div className="device-grid">
             <article className="device-card local-device">
               <div className="device-card-head">
@@ -1123,11 +1334,16 @@ export default function ControlConsole() {
                 type="button"
                 className="secondary-button"
                 disabled={
-                  connection !== "online" ||
-                  !status?.focus?.isRemote ||
-                  busy === "focus-release"
+                  busy === "focus-release" ||
+                  (!seamlessSessionActive &&
+                    (connection !== "online" ||
+                      !status?.focus?.isRemote ||
+                      busy === "focus-release"))
                 }
-                onClick={() =>
+                onClick={() => {
+                  if (seamlessSessionActive) {
+                    remoteDesktopRef.current?.stopSeamless("已返回本机。");
+                  }
                   void runAction(
                     "focus-release",
                     () =>
@@ -1136,10 +1352,10 @@ export default function ControlConsole() {
                         jsonRequest("POST"),
                       ),
                     "控制权已回到本机。",
-                  )
-                }
+                  );
+                }}
               >
-                {activeDeviceId === status?.deviceId && !status?.focus?.isRemote
+                {activeDeviceId === status?.deviceId && !status?.focus?.isRemote && !seamlessSessionActive
                   ? "当前设备"
                   : "切回本机"}
               </button>
@@ -1148,7 +1364,13 @@ export default function ControlConsole() {
             {snapshot.peers.length > 0 ? (
               snapshot.peers.map((peer) => {
                 const peerOnline = connection === "online" && Boolean(peer.online);
-                const isActive = activeDeviceId === peer.id && status?.focus?.isRemote;
+                const isSeamlessTarget = seamlessSession?.targetDeviceId === peer.id;
+                const isAgentActive =
+                  activeDeviceId === peer.id && Boolean(status?.focus?.isRemote);
+                const isActive = isSeamlessTarget || isAgentActive;
+                const supportsSeamlessRemote = (peer.capabilities ?? []).some(
+                  (capability) => capability.toLowerCase() === "remote-desktop",
+                );
                 const localDisplayMapping = selectedDisplay?.mappings?.find(
                   (mapping) => mapping.deviceId === status?.deviceId,
                 );
@@ -1194,11 +1416,22 @@ export default function ControlConsole() {
                           !peerOnline ||
                           busy === `switch-${peer.id}` ||
                           isActive ||
+                          (seamlessSessionActive && !isSeamlessTarget) ||
+                          (switchMode === "seamlessRemote" &&
+                            peer.paired &&
+                            !supportsSeamlessRemote) ||
                           (!peer.paired && !peer.address)
                         }
-                        onClick={() =>
-                          peer.paired
-                            ? void runAction(
+                        onClick={() => {
+                          if (!peer.paired) {
+                            chooseDiscoveredPeer(peer);
+                            return;
+                          }
+                          if (switchMode === "seamlessRemote") {
+                            remoteDesktopRef.current?.startSeamless(peer.id);
+                            return;
+                          }
+                          void runAction(
                                 `switch-${peer.id}`,
                                 () =>
                                   apiRequest<WriteResult>(
@@ -1209,18 +1442,27 @@ export default function ControlConsole() {
                                 screenSwitchReady
                                   ? `正在把画面与控制权切换到 ${peer.name || "远端设备"}。`
                                   : "键鼠控制已切换；显示器尚未完成双向校准，请用实体键切换画面。",
-                              )
-                            : chooseDiscoveredPeer(peer)
-                        }
+                              );
+                        }}
                       >
-                        {isActive
-                          ? "当前控制目标"
+                        {isSeamlessTarget
+                          ? seamlessSession?.phase === "connected"
+                            ? "无缝远程中"
+                            : "等待远程画面…"
+                          : isAgentActive
+                            ? "当前控制目标"
+                            : seamlessSessionActive
+                              ? "已有无缝会话"
                           : busy === `switch-${peer.id}`
                             ? "正在切换…"
                             : peer.paired
-                              ? screenSwitchReady
-                                ? "切换画面与键鼠"
-                                : "仅切键鼠（画面未校准）"
+                              ? switchMode === "seamlessRemote"
+                                ? supportsSeamlessRemote
+                                  ? "无缝打开远端"
+                                  : "不支持无缝远程"
+                                : screenSwitchReady
+                                  ? "切换画面与键鼠"
+                                  : "仅切键鼠（画面未校准）"
                               : "使用此地址配对"}
                       </button>
                       {peer.paired ? (
@@ -1229,6 +1471,7 @@ export default function ControlConsole() {
                           className="danger-button"
                           disabled={
                             connection !== "online" ||
+                            seamlessSessionActive ||
                             busy === `forget-${peer.id}`
                           }
                           onClick={() => void handleForgetPeer(peer)}
@@ -1309,9 +1552,14 @@ export default function ControlConsole() {
         </section>
 
         <RemoteDesktopPanel
+          ref={remoteDesktopRef}
           peers={onlinePeers}
           connection={connection}
           onNotice={setNotice}
+          onSeamlessSessionChange={(session) => {
+            seamlessSessionRef.current = session;
+            setSeamlessSession(session);
+          }}
         />
 
         <div className="split-sections">
@@ -2655,6 +2903,25 @@ function pairingStatusLabel(status?: string) {
     failed: "失败",
   };
   return status ? labels[status.toLowerCase()] || status : "等待确认";
+}
+
+function eventTargetDeviceId(payload: unknown) {
+  if (typeof payload === "string") return payload.trim();
+  if (!payload || typeof payload !== "object") return "";
+  const value = (payload as Record<string, unknown>).targetDeviceId;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function eventRequestId(payload: unknown) {
+  if (!payload || typeof payload !== "object") return "";
+  const value = (payload as Record<string, unknown>).requestId;
+  return typeof value === "string" && /^[a-f0-9]{32}$/i.test(value)
+    ? value.toLowerCase()
+    : "";
+}
+
+function normalizeSwitchMode(mode: unknown): SwitchMode {
+  return mode === "seamlessRemote" ? "seamlessRemote" : "directSignal";
 }
 
 async function saveDisplayMapping(mapping: {

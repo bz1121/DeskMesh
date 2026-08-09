@@ -10,7 +10,8 @@ public sealed class FocusCoordinator(
     PeerHttpClientFactory clients,
     AppState state,
     InputCoordinator input,
-    DisplayCoordinator display)
+    DisplayCoordinator display,
+    RemoteDesktopOutgoingSessionRegistry outgoingDesktopSessions)
 {
     internal static readonly TimeSpan ForwardArrivalWindow = TimeSpan.FromSeconds(8);
     internal static readonly TimeSpan PeerArrivalAttemptWindow = TimeSpan.FromSeconds(2);
@@ -21,6 +22,101 @@ public sealed class FocusCoordinator(
     private readonly object _peerDisplayOperationsGate = new();
     private readonly Dictionary<string, PeerDisplaySwitchOperation> _peerDisplayOperations = new(StringComparer.Ordinal);
     internal Func<RuntimePeer, HttpClient>? PeerClientFactoryOverride { get; set; }
+
+    public async Task<SwitchModeSettingsView> UpdateSwitchModeAsync(
+        string? requestedMode,
+        CancellationToken cancellationToken)
+    {
+        var mode = SwitchModeConfiguration.Validate(requestedMode);
+        await _switchGate.WaitAsync(cancellationToken);
+        try
+        {
+            var currentMode = settings.Snapshot.SwitchMode;
+            if (string.Equals(currentMode, mode, StringComparison.Ordinal))
+                return new SwitchModeSettingsView(currentMode);
+            using var desktopTransition = outgoingDesktopSessions.TryAcquireFocusTransition()
+                ?? throw new InvalidOperationException(
+                    "请先关闭正在使用的远程桌面会话，再更改切换模式。");
+            var currentFocus = state.Focus;
+            if (currentFocus.IsRemote || !string.Equals(currentFocus.Phase, "local", StringComparison.Ordinal))
+                throw new InvalidOperationException("请先等待当前切换结束并把系统级键鼠控制切回本机，再更改切换模式。");
+            var updated = await settings.UpdateAsync(
+                current => current with { SwitchMode = mode },
+                cancellationToken);
+            var view = new SwitchModeSettingsView(updated.SwitchMode);
+            state.Publish("switch-mode", view);
+            state.AddDiagnostic("info", "切换模式",
+                mode == SwitchModeConfiguration.SeamlessRemote
+                    ? "已切换为无缝远程；实体信号与全局焦点切换已暂停。"
+                    : "已切换为直接信号；允许执行 DDC/CI 与全局键鼠切换。");
+            return view;
+        }
+        finally
+        {
+            _switchGate.Release();
+        }
+    }
+
+    public async Task<FocusView> RequestUserToggleAsync(string source, CancellationToken cancellationToken)
+    {
+        var directSignal = false;
+        await _switchGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (!SwitchModeConfiguration.IsSeamlessRemote(settings.Snapshot.SwitchMode))
+            {
+                directSignal = true;
+            }
+            else if (outgoingDesktopSessions.CancelAllAndAdvanceGeneration())
+            {
+                state.Publish("seamless-release-request", new
+                {
+                    mode = SwitchModeConfiguration.SeamlessRemote,
+                    source,
+                    requestId = Guid.NewGuid().ToString("N")
+                });
+                state.Publish("notice", new
+                {
+                    level = "info",
+                    message = "无缝远程会话正在关闭，键鼠将返回本机。"
+                });
+                return state.Focus;
+            }
+            else
+            {
+                var candidates = peers.PairedPeers.Where(static peer =>
+                    peer.Online && peer.Capabilities.Contains(
+                        "remote-desktop",
+                        StringComparer.OrdinalIgnoreCase)).ToArray();
+                var targetDeviceId = candidates.Length == 1 ? candidates[0].Id : null;
+                state.Publish("seamless-switch-request", new
+                {
+                    mode = SwitchModeConfiguration.SeamlessRemote,
+                    source,
+                    targetDeviceId,
+                    requestId = Guid.NewGuid().ToString("N")
+                });
+                state.Publish("notice", new
+                {
+                    level = candidates.Length == 0 ? "warning" : "info",
+                    message = candidates.Length switch
+                    {
+                        0 => "无缝远程模式没有找到在线且支持远程桌面的已配对设备。",
+                        1 => "无缝远程请求已发送到前台控制中心；不会切换实体信号。",
+                        _ => "有多台设备可用，请在前台控制中心选择无缝远程目标。"
+                    }
+                });
+                return state.Focus;
+            }
+        }
+        finally
+        {
+            _switchGate.Release();
+        }
+
+        if (directSignal) return await SwitchAsync(null, cancellationToken);
+        return state.Focus;
+    }
 
     public async Task<FocusView> SwitchAsync(
         string? targetDeviceId,
@@ -54,6 +150,15 @@ public sealed class FocusCoordinator(
                 targetDeviceId = current.IsRemote ? identity.DeviceId : peers.PairedPeers.FirstOrDefault(static peer => peer.Online)?.Id;
             }
             if (string.IsNullOrWhiteSpace(targetDeviceId)) throw new InvalidOperationException("没有在线的已配对设备。");
+            if (targetDeviceId != identity.DeviceId &&
+                SwitchModeConfiguration.IsSeamlessRemote(settings.Snapshot.SwitchMode))
+                throw new InvalidOperationException(
+                    "当前是无缝远程模式；系统级键鼠和实体信号切换已被阻止，请通过控制中心打开远程画面。");
+            using var desktopTransition = targetDeviceId == identity.DeviceId
+                ? null
+                : outgoingDesktopSessions.TryAcquireFocusTransition()
+                    ?? throw new InvalidOperationException(
+                        "请先关闭正在使用的远程桌面会话，再执行系统级键鼠或显示器切换。");
             if (targetDeviceId == identity.DeviceId)
             {
                 state.AddDiagnostic("info", "控制切换", $"请求切回本机；当前阶段={current.Phase}，epoch={current.Epoch}。");
@@ -135,8 +240,28 @@ public sealed class FocusCoordinator(
         return Task.FromResult(EmergencyReleaseNow(reason));
     }
 
-    public FocusView EmergencyReleaseNow(string reason, bool restoreDisplay = true)
-        => TryEmergencyReleaseNow(reason, restoreDisplay, static _ => true)!;
+    public Task<FocusView> RequestUserReleaseAsync(
+        string reason,
+        string source,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        state.Publish("seamless-release-request", new
+        {
+            mode = SwitchModeConfiguration.SeamlessRemote,
+            source,
+            requestId = Guid.NewGuid().ToString("N")
+        });
+        return Task.FromResult(EmergencyReleaseNow(reason));
+    }
+
+    public FocusView EmergencyReleaseNow(string reason, bool? restoreDisplay = null)
+    {
+        _ = outgoingDesktopSessions.CancelAllAndAdvanceGeneration();
+        var shouldRestoreDisplay = restoreDisplay ??
+            (state.Focus.IsRemote || !SwitchModeConfiguration.IsSeamlessRemote(settings.Snapshot.SwitchMode));
+        return TryEmergencyReleaseNow(reason, shouldRestoreDisplay, static _ => true)!;
+    }
 
     public bool EmergencyReleaseIfOutgoingSessionCurrent(
         long generation,
