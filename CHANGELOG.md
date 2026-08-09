@@ -4,6 +4,8 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 
 ## [Unreleased]
 
+## [0.1.0-alpha.2] - 2026-08-09
+
 ### Added
 
 - 新增“直接信号”和“无缝远程”两种持久化切换模式；无缝模式保持显示器输入不变，首帧成功显示后才进入全视口远程控制。
@@ -40,5 +42,6 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 - 90 FPS 是实验性目标上限，不是所有硬件和网络下的保证值。
 - DDC/CI 行为依赖具体显示器，必须保留实体切源手段。
 
-[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.1...HEAD
+[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.2...HEAD
+[0.1.0-alpha.2]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/bz1121/DeskMesh/releases/tag/v0.1.0-alpha.1

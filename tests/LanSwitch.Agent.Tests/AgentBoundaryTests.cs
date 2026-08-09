@@ -136,7 +136,7 @@ public sealed class AgentBoundaryTests
     [Fact]
     public void PublicVersionPreservesTheSemanticPrereleaseLabel()
     {
-        Assert.Equal("0.1.0-alpha.1", AppState.GetProductVersion(typeof(AppState).Assembly));
+        Assert.Equal("0.1.0-alpha.2", AppState.GetProductVersion(typeof(AppState).Assembly));
     }
 
     [Fact]

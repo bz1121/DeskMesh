@@ -67,7 +67,7 @@
       "lanswitch.windows": {
         "type": "Project",
         "dependencies": {
-          "LanSwitch.Core": "[0.1.0-alpha.1, )"
+          "LanSwitch.Core": "[0.1.0-alpha.2, )"
         }
       }
     },

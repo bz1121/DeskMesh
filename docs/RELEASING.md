@@ -22,7 +22,7 @@ Release 工作流只授予 `contents: write`、`id-token: write` 和 `attestatio
 
 1. 确认 `main` 工作树干净，CI、CodeQL 和依赖检查全部通过。
 2. 更新 `CHANGELOG.md`，把目标版本从 `Unreleased` 改为实际 UTC 日期。
-3. 确认 `Directory.Build.props`、Windows 文件版本、前端包版本和用户界面显示一致。
+3. 确认 `Directory.Build.props`、Windows 产品/信息版本、前端包版本和用户界面显示一致；Windows 四段文件版本可保持对应的数字版本（例如 `0.1.0.0`）。
 4. 在两台干净的 Windows 10/11 x64 设备完成配对、断网回退、紧急快捷键、剪贴板、文件和远程桌面测试。
 5. 对实验性音频和 90 FPS 分别记录实际 FPS、CPU、网络、声卡和失败结果；不能只记录成功案例。
 6. 对目标显示器做 HDMI1↔DP、休眠唤醒和 DDC 通道消失测试。
@@ -38,8 +38,9 @@ Release 工作流只授予 `contents: write`、`id-token: write` 和 `attestatio
 ```powershell
 git switch main
 git pull --ff-only
-git tag -s v0.1.0-alpha.1 -m "DeskMesh 0.1.0-alpha.1"
-git push origin v0.1.0-alpha.1
+$version = "0.1.0-alpha.2"
+git tag -s "v$version" -m "DeskMesh $version"
+git push origin "v$version"
 ```
 
 如果维护者暂时没有可验证的 GPG/SSH 签名，可创建受保护的 annotated tag，但必须在发布记录中说明。tagger 也应使用 GitHub 隐私邮箱。不要为了让工作流通过而重用、移动或覆盖已有 tag。
@@ -60,13 +61,13 @@ git push origin v0.1.0-alpha.1
 下载者可运行：
 
 ```powershell
-Get-FileHash .\DeskMesh-0.1.0-alpha.1-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeskMesh-0.1.0-alpha.2-win-x64.zip -Algorithm SHA256
 ```
 
 结果必须与 Release 中 `SHA256SUMS.txt` 一致。安装了 GitHub CLI 的用户还可验证 provenance：
 
 ```powershell
-gh attestation verify .\DeskMesh-0.1.0-alpha.1-win-x64.zip --repo bz1121/DeskMesh
+gh attestation verify .\DeskMesh-0.1.0-alpha.2-win-x64.zip --repo bz1121/DeskMesh
 ```
 
 维护者应在一台未参与构建的 Windows 电脑下载 Release 资产、重复验证摘要、解压启动并完成最小配对测试后，再对外宣布发布。
@@ -79,5 +80,5 @@ gh attestation verify .\DeskMesh-0.1.0-alpha.1-win-x64.zip --repo bz1121/DeskMes
 
 - 不要替换同名 Release 资产或移动 tag。
 - 立即将受影响 Release 标为有已知问题，并在安全公告或 Issue 中给出缓解措施。
-- 修复后发布递增版本，例如 `0.1.0-alpha.2`。
+- 修复后发布递增版本，例如 `0.1.0-alpha.3`。
 - 若涉及安全问题，按 `SECURITY.md` 协调披露并在 Changelog 标出受影响范围。

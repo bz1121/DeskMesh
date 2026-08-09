@@ -113,7 +113,7 @@ jobs:
           @"
           ## DeskMesh $version
 
-          **This is an unsigned Alpha release that has not received an independent security audit.** Windows SmartScreen may report an unknown publisher. Verify `SHA256SUMS.txt` and the GitHub build provenance before running it.
+          **This is an unsigned Alpha release that has not received an independent security audit.** Windows SmartScreen may report an unknown publisher. The source tag is annotated but not cryptographically signed. Verify `SHA256SUMS.txt` and the GitHub build provenance before running it.
 
           Remote desktop, system-audio forwarding, and the up-to-90-FPS mode are experimental. Use DeskMesh only on a trusted private Windows LAN, and never expose its peer port to the public Internet. See `CHANGELOG.md` for changes and known limitations, and `README.zh-CN.md` for Simplified Chinese documentation.
 
