@@ -69,8 +69,114 @@ type SnapshotData = {
   diagnostics: DiagnosticLog[];
 };
 
+type ConsolePage =
+  | "overview"
+  | "devices"
+  | "remote-desktop"
+  | "clipboard"
+  | "files"
+  | "display"
+  | "security"
+  | "diagnostics";
+
+type ConsolePageMeta = {
+  id: ConsolePage;
+  label: string;
+  eyebrow: string;
+  title: string;
+  description: string;
+  group: "控制" | "共享" | "系统";
+};
+
+const CONSOLE_PAGES: readonly ConsolePageMeta[] = [
+  {
+    id: "overview",
+    label: "总览",
+    eyebrow: "控制中心 / 本机",
+    title: "运行概览",
+    description: "集中查看当前控制目标、在线设备与关键运行状态。",
+    group: "控制",
+  },
+  {
+    id: "devices",
+    label: "设备与切换",
+    eyebrow: "控制中心 / 设备",
+    title: "设备与切换",
+    description: "选择切换方式，并把键鼠、画面和音频交给正确的设备。",
+    group: "控制",
+  },
+  {
+    id: "remote-desktop",
+    label: "远程桌面",
+    eyebrow: "控制中心 / 实时协作",
+    title: "远程桌面",
+    description: "在不切换显示器信号源的情况下查看并控制另一台电脑。",
+    group: "控制",
+  },
+  {
+    id: "clipboard",
+    label: "剪贴板",
+    eyebrow: "控制中心 / 内容同步",
+    title: "剪贴板同步",
+    description: "管理文本与图片的同步方向、限制和当前内容。",
+    group: "共享",
+  },
+  {
+    id: "files",
+    label: "文件传送",
+    eyebrow: "控制中心 / 安全传输",
+    title: "文件传送",
+    description: "拖放文件、选择目标，并跟踪局域网传输请求。",
+    group: "共享",
+  },
+  {
+    id: "display",
+    label: "显示器校准",
+    eyebrow: "控制中心 / 硬件联动",
+    title: "显示器校准",
+    description: "探测 DDC/CI、保存输入映射并配置实体切源跟随。",
+    group: "系统",
+  },
+  {
+    id: "security",
+    label: "安全与配对",
+    eyebrow: "控制中心 / 信任管理",
+    title: "安全与配对",
+    description: "管理可信设备、配对请求、证书指纹和全局快捷键。",
+    group: "系统",
+  },
+  {
+    id: "diagnostics",
+    label: "诊断日志",
+    eyebrow: "控制中心 / 运行记录",
+    title: "诊断日志",
+    description: "查看切换、输入、显示器和网络事件的完整原因。",
+    group: "系统",
+  },
+] as const;
+
+const CONSOLE_PAGE_IDS = new Set<ConsolePage>(
+  CONSOLE_PAGES.map((page) => page.id),
+);
+
+function pageFromHash(hash: string): ConsolePage | null {
+  let candidate = "";
+  try {
+    candidate = decodeURIComponent(hash.replace(/^#\/?/, "")).split("/")[0];
+  } catch {
+    return null;
+  }
+  return CONSOLE_PAGE_IDS.has(candidate as ConsolePage)
+    ? (candidate as ConsolePage)
+    : null;
+}
+
 export default function ControlConsole() {
   const [connection, setConnection] = useState<ConnectionState>("checking");
+  const [activePage, setActivePage] = useState<ConsolePage>(() => {
+    if (typeof window === "undefined") return "overview";
+    return pageFromHash(window.location.hash) ?? "overview";
+  });
   const [snapshot, setSnapshot] = useState<SnapshotData>({
     status: null,
     peers: [],
@@ -100,6 +206,7 @@ export default function ControlConsole() {
   const [fileOfferCreated, setFileOfferCreated] = useState(false);
   const [fileCancelled, setFileCancelled] = useState(false);
   const [fileCancelling, setFileCancelling] = useState(false);
+  const [fileUploadActive, setFileUploadActive] = useState(false);
   const [selectedMonitor, setSelectedMonitor] = useState("");
   const [mappingTarget, setMappingTarget] = useState("");
   const [mappingLabel, setMappingLabel] = useState("");
@@ -124,8 +231,66 @@ export default function ControlConsole() {
   const fileDragDepth = useRef(0);
   const fileUploadRequest = useRef<XMLHttpRequest | null>(null);
   const fileUploadCancelRequested = useRef(false);
+  const fileUploadActiveRef = useRef(false);
   const remoteDesktopRef = useRef<RemoteDesktopPanelHandle>(null);
   const peersRef = useRef<PeerSummary[]>([]);
+  const pageTitleRef = useRef<HTMLHeadingElement>(null);
+
+  const activePageMeta = useMemo(
+    () =>
+      CONSOLE_PAGES.find((page) => page.id === activePage) ??
+      CONSOLE_PAGES[0],
+    [activePage],
+  );
+
+  const navigateToPage = useCallback((page: ConsolePage) => {
+    const nextHash = `#/${page}`;
+    if (window.location.hash !== nextHash) {
+      window.history.pushState(null, "", nextHash);
+    }
+    setActivePage(page);
+    window.requestAnimationFrame(() => {
+      window.scrollTo({ top: 0, behavior: "auto" });
+      pageTitleRef.current?.focus({ preventScroll: true });
+    });
+  }, []);
+
+  useEffect(() => {
+    const syncPageFromLocation = () => {
+      const nextPage = pageFromHash(window.location.hash);
+      if (!nextPage) {
+        window.history.replaceState(null, "", "#/overview");
+        setActivePage("overview");
+        return;
+      }
+      setActivePage(nextPage);
+      const canonicalHash = `#/${nextPage}`;
+      if (window.location.hash !== canonicalHash) {
+        window.history.replaceState(null, "", canonicalHash);
+      }
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: "auto" });
+        pageTitleRef.current?.focus({ preventScroll: true });
+      });
+    };
+
+    if (!pageFromHash(window.location.hash)) {
+      window.history.replaceState(null, "", "#/overview");
+    } else {
+      syncPageFromLocation();
+    }
+
+    window.addEventListener("hashchange", syncPageFromLocation);
+    window.addEventListener("popstate", syncPageFromLocation);
+    return () => {
+      window.removeEventListener("hashchange", syncPageFromLocation);
+      window.removeEventListener("popstate", syncPageFromLocation);
+    };
+  }, []);
+
+  useEffect(() => {
+    document.title = `${activePageMeta.title} · DeskMesh`;
+  }, [activePageMeta.title]);
 
   const refreshSnapshot = useCallback(async (quiet = false) => {
     if (refreshing.current) return;
@@ -291,9 +456,7 @@ export default function ControlConsole() {
             ? "快捷键没有找到可用的无缝远程设备；请确认对端已配对并在线。"
             : "有多台设备可用于无缝远程，请在设备列表中选择目标。",
       });
-      document
-        .getElementById("devices")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      navigateToPage("devices");
     };
 
     const claimSeamlessHotkeyRequest = async (
@@ -376,7 +539,7 @@ export default function ControlConsole() {
       window.clearTimeout(refreshTimer);
       socket?.close();
     };
-  }, [refreshSnapshot]);
+  }, [navigateToPage, refreshSnapshot]);
 
   useEffect(() => {
     if (
@@ -475,7 +638,7 @@ export default function ControlConsole() {
   const fileTargetPeer = onlinePeers.find(
     (peer) => peer.id === effectiveFileTarget,
   );
-  const fileUploadBusy = busy === "file-upload";
+  const fileUploadBusy = fileUploadActive;
   const fileCanSubmit = Boolean(
     connection === "online" &&
       selectedFile &&
@@ -572,9 +735,7 @@ export default function ControlConsole() {
     pairingAddressEdited.current = true;
     setPairingAddress(peer.address);
     setPairingAddressSource(peer.name || "局域网设备");
-    document
-      .getElementById("security")
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    navigateToPage("security");
     window.setTimeout(() => pairingAddressInput.current?.focus(), 350);
   }
 
@@ -830,6 +991,7 @@ export default function ControlConsole() {
 
   async function handleFileUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (fileUploadActiveRef.current) return;
     if (connection !== "online") {
       setFileError("本机 Agent 当前离线，无法发送文件。");
       return;
@@ -847,7 +1009,8 @@ export default function ControlConsole() {
       return;
     }
 
-    setBusy("file-upload");
+    fileUploadActiveRef.current = true;
+    setFileUploadActive(true);
     setNotice(null);
     setFileError(null);
     setFileOfferCreated(false);
@@ -874,7 +1037,6 @@ export default function ControlConsole() {
       fileUploadRequest.current = null;
       setFileCancelling(false);
       setUploadProgress(null);
-      setBusy(null);
       await refreshSnapshot(true);
     } catch (error) {
       const message = getErrorMessage(error);
@@ -889,9 +1051,10 @@ export default function ControlConsole() {
     } finally {
       fileUploadRequest.current = null;
       fileUploadCancelRequested.current = false;
+      fileUploadActiveRef.current = false;
+      setFileUploadActive(false);
       setFileCancelling(false);
       setUploadProgress(null);
-      setBusy(null);
     }
   }
 
@@ -1048,7 +1211,14 @@ export default function ControlConsole() {
 
   return (
     <div className="app-shell">
-      <a className="skip-link" href="#main-content">
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(event) => {
+          event.preventDefault();
+          document.getElementById("main-content")?.focus();
+        }}
+      >
         跳到主要内容
       </a>
 
@@ -1064,15 +1234,27 @@ export default function ControlConsole() {
           </div>
         </div>
 
-        <nav className="side-nav" aria-label="控制台分区">
-          <a href="#overview">总览</a>
-          <a href="#devices">设备与切换</a>
-          <a href="#remote-desktop">远程桌面</a>
-          <a href="#clipboard">剪贴板</a>
-          <a href="#files">文件传送</a>
-          <a href="#display">显示器校准</a>
-          <a href="#security">安全与配对</a>
-          <a href="#diagnostics">诊断日志</a>
+        <nav className="side-nav" aria-label="控制台页面">
+          {(["控制", "共享", "系统"] as const).map((group) => (
+            <div className="side-nav-group" key={group}>
+              <span className="side-nav-group-label">{group}</span>
+              {CONSOLE_PAGES.filter((page) => page.group === group).map(
+                (page) => (
+                  <a
+                    key={page.id}
+                    href={`#/${page.id}`}
+                    aria-current={activePage === page.id ? "page" : undefined}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigateToPage(page.id);
+                    }}
+                  >
+                    <span>{page.label}</span>
+                  </a>
+                ),
+              )}
+            </div>
+          ))}
         </nav>
 
         <div className="sidebar-foot">
@@ -1082,11 +1264,12 @@ export default function ControlConsole() {
         </div>
       </aside>
 
-      <main id="main-content" className="main-content">
+      <main id="main-content" className="main-content" tabIndex={-1}>
         <header className="topbar">
-          <div>
-            <p className="eyebrow">局域网协同 / 本机</p>
-            <h1>控制中心</h1>
+          <div className="topbar-copy">
+            <p className="eyebrow">{activePageMeta.eyebrow}</p>
+            <h1 ref={pageTitleRef} tabIndex={-1}>{activePageMeta.title}</h1>
+            <p className="topbar-description">{activePageMeta.description}</p>
           </div>
           <div className="topbar-actions">
             <div
@@ -1110,6 +1293,18 @@ export default function ControlConsole() {
             </button>
           </div>
         </header>
+
+        <label className="mobile-page-picker">
+          <span>当前工作区</span>
+          <select
+            value={activePage}
+            onChange={(event) => navigateToPage(event.target.value as ConsolePage)}
+          >
+            {CONSOLE_PAGES.map((page) => (
+              <option key={page.id} value={page.id}>{page.label}</option>
+            ))}
+          </select>
+        </label>
 
         {connection === "offline" ? (
           <section className="offline-banner" aria-labelledby="offline-title">
@@ -1142,7 +1337,36 @@ export default function ControlConsole() {
           </div>
         ) : null}
 
-        <section id="overview" className="overview-grid" aria-labelledby="overview-title">
+        {fileUploadBusy && activePage !== "files" ? (
+          <div className="global-activity" role="status" aria-live="polite">
+            <span className="global-activity-pulse" aria-hidden="true" />
+            <div>
+              <strong>文件正在本机暂存</strong>
+              <small>
+                {selectedFile?.name || "所选文件"}
+                {uploadProgress != null ? ` · ${uploadProgress}%` : ""}
+              </small>
+            </div>
+            <button type="button" className="text-button" onClick={() => navigateToPage("files")}>
+              查看传输
+            </button>
+            <button
+              type="button"
+              className="danger-button"
+              disabled={fileCancelling}
+              onClick={cancelLocalFileUpload}
+            >
+              {fileCancelling ? "正在取消…" : "取消"}
+            </button>
+          </div>
+        ) : null}
+
+        <section
+          id="overview"
+          className="overview-grid page-view"
+          aria-labelledby="overview-title"
+          hidden={activePage !== "overview"}
+        >
           <article className="focus-card">
             <div className="section-heading inverse">
               <div>
@@ -1249,9 +1473,57 @@ export default function ControlConsole() {
               }
             />
           </div>
+
+          <nav className="overview-shortcuts" aria-label="常用功能">
+            {[
+              {
+                page: "devices" as const,
+                number: "01",
+                title: "切换设备",
+                description: "选择直接信号或无缝远程模式。",
+              },
+              {
+                page: "remote-desktop" as const,
+                number: "02",
+                title: "打开远程桌面",
+                description: "查看画面、声音与会话状态。",
+              },
+              {
+                page: "files" as const,
+                number: "03",
+                title: "传送文件",
+                description: "拖放文件并跟踪收发请求。",
+              },
+              {
+                page: "security" as const,
+                number: "04",
+                title: "配对新设备",
+                description: "生成配对码并确认设备身份。",
+              },
+            ].map((shortcut) => (
+              <a
+                key={shortcut.page}
+                href={`#/${shortcut.page}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigateToPage(shortcut.page);
+                }}
+              >
+                <span>{shortcut.number}</span>
+                <strong>{shortcut.title}</strong>
+                <small>{shortcut.description}</small>
+                <b aria-hidden="true">进入 →</b>
+              </a>
+            ))}
+          </nav>
         </section>
 
-        <section id="devices" className="content-section" aria-labelledby="devices-title">
+        <section
+          id="devices"
+          className="content-section page-view"
+          aria-labelledby="devices-title"
+          hidden={activePage !== "devices"}
+        >
           <SectionHeader
             id="devices-title"
             eyebrow="设备与切换"
@@ -1555,6 +1827,8 @@ export default function ControlConsole() {
           ref={remoteDesktopRef}
           peers={onlinePeers}
           connection={connection}
+          pageVisible={activePage === "remote-desktop"}
+          onOpenPage={() => navigateToPage("remote-desktop")}
           onNotice={setNotice}
           onSeamlessSessionChange={(session) => {
             seamlessSessionRef.current = session;
@@ -1562,8 +1836,16 @@ export default function ControlConsole() {
           }}
         />
 
-        <div className="split-sections">
-          <section id="clipboard" className="panel-section" aria-labelledby="clipboard-title">
+        <div
+          className="split-sections paged-split page-view"
+          hidden={activePage !== "clipboard" && activePage !== "files"}
+        >
+          <section
+            id="clipboard"
+            className="panel-section"
+            aria-labelledby="clipboard-title"
+            hidden={activePage !== "clipboard"}
+          >
             <SectionHeader
               id="clipboard-title"
               eyebrow="剪贴板"
@@ -1667,7 +1949,12 @@ export default function ControlConsole() {
             </form>
           </section>
 
-          <section id="files" className="panel-section" aria-labelledby="files-title">
+          <section
+            id="files"
+            className="panel-section"
+            aria-labelledby="files-title"
+            hidden={activePage !== "files"}
+          >
             <SectionHeader
               id="files-title"
               eyebrow="文件传送"
@@ -1902,7 +2189,12 @@ export default function ControlConsole() {
           </section>
         </div>
 
-        <section id="display" className="content-section" aria-labelledby="display-title">
+        <section
+          id="display"
+          className="content-section page-view"
+          aria-labelledby="display-title"
+          hidden={activePage !== "display"}
+        >
           <SectionHeader
             id="display-title"
             eyebrow="显示器校准"
@@ -2251,7 +2543,12 @@ export default function ControlConsole() {
           </article>
         </section>
 
-        <section id="security" className="content-section" aria-labelledby="security-title">
+        <section
+          id="security"
+          className="content-section page-view"
+          aria-labelledby="security-title"
+          hidden={activePage !== "security"}
+        >
           <SectionHeader
             id="security-title"
             eyebrow="安全与配对"
@@ -2540,7 +2837,12 @@ export default function ControlConsole() {
           ) : null}
         </section>
 
-        <section id="diagnostics" className="content-section" aria-labelledby="diagnostics-title">
+        <section
+          id="diagnostics"
+          className="content-section page-view"
+          aria-labelledby="diagnostics-title"
+          hidden={activePage !== "diagnostics"}
+        >
           <SectionHeader
             id="diagnostics-title"
             eyebrow="故障诊断"

@@ -26,6 +26,8 @@ import {
 type RemoteDesktopPanelProps = {
   peers: PeerSummary[];
   connection: ConnectionState;
+  pageVisible: boolean;
+  onOpenPage: () => void;
   onNotice: (notice: {
     tone: "success" | "warning" | "danger";
     message: string;
@@ -68,7 +70,14 @@ const FIRST_FRAME_TIMEOUT_MS = 8_000;
 
 const RemoteDesktopPanel = forwardRef<RemoteDesktopPanelHandle, RemoteDesktopPanelProps>(
   function RemoteDesktopPanel(
-    { peers, connection, onNotice, onSeamlessSessionChange },
+    {
+      peers,
+      connection,
+      pageVisible,
+      onOpenPage,
+      onNotice,
+      onSeamlessSessionChange,
+    },
     ref,
   ) {
   const [settings, setSettings] = useState<RemoteDesktopSettings>({
@@ -612,7 +621,31 @@ const RemoteDesktopPanel = forwardRef<RemoteDesktopPanelHandle, RemoteDesktopPan
     phase === "connected";
 
   return (
-    <section id="remote-desktop" className="content-section remote-desktop-section" aria-labelledby="remote-desktop-title">
+    <section
+      id="remote-desktop"
+      className={`content-section remote-desktop-section page-view${pageVisible ? " is-page-visible" : " is-page-background"}`}
+      aria-labelledby="remote-desktop-title"
+      aria-hidden={!pageVisible && !seamlessOverlay && !sessionOpen}
+    >
+      {!pageVisible && sessionOpen && !seamlessOverlay ? (
+        <div className="remote-background-activity" role="status" aria-live="polite">
+          <span className="status-dot online" aria-hidden="true" />
+          <div>
+            <strong>远程桌面仍在后台运行</strong>
+            <small>{activeTargetName || message}</small>
+          </div>
+          <button type="button" className="secondary-button" onClick={onOpenPage}>
+            返回远程桌面
+          </button>
+          <button
+            type="button"
+            className="danger-button"
+            onClick={() => endSession("远程桌面已关闭。")}
+          >
+            断开
+          </button>
+        </div>
+      ) : null}
       <div className="section-heading">
         <div>
           <span className="eyebrow">局域网远程控制</span>
