@@ -4,6 +4,8 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 
 ## [Unreleased]
 
+## [0.1.0-alpha.4] - 2026-08-10
+
 ### Changed
 
 - 本机管理员密码的最小长度调整为 6 个字符；仍建议使用更长、仅用于 DeskMesh 的密码，登录失败锁定策略保持不变。
@@ -69,7 +71,8 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 - 90 FPS 是实验性目标上限，不是所有硬件和网络下的保证值。
 - DDC/CI 行为依赖具体显示器，必须保留实体切源手段。
 
-[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.3...HEAD
+[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.4...HEAD
+[0.1.0-alpha.4]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.3...v0.1.0-alpha.4
 [0.1.0-alpha.3]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/bz1121/DeskMesh/releases/tag/v0.1.0-alpha.1

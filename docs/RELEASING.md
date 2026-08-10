@@ -38,7 +38,7 @@ Release 工作流只授予 `contents: write`、`id-token: write` 和 `attestatio
 ```powershell
 git switch main
 git pull --ff-only
-$version = "0.1.0-alpha.3"
+$version = "0.1.0-alpha.4"
 git tag -s "v$version" -m "DeskMesh $version"
 git push origin "v$version"
 ```
@@ -61,13 +61,13 @@ git push origin "v$version"
 下载者可运行：
 
 ```powershell
-Get-FileHash .\DeskMesh-0.1.0-alpha.3-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeskMesh-0.1.0-alpha.4-win-x64.zip -Algorithm SHA256
 ```
 
 结果必须与 Release 中 `SHA256SUMS.txt` 一致。安装了 GitHub CLI 的用户还可验证 provenance：
 
 ```powershell
-gh attestation verify .\DeskMesh-0.1.0-alpha.3-win-x64.zip --repo bz1121/DeskMesh
+gh attestation verify .\DeskMesh-0.1.0-alpha.4-win-x64.zip --repo bz1121/DeskMesh
 ```
 
 维护者应在一台未参与构建的 Windows 电脑下载 Release 资产、重复验证摘要、解压启动并完成最小配对测试后，再对外宣布发布。
@@ -80,5 +80,5 @@ gh attestation verify .\DeskMesh-0.1.0-alpha.3-win-x64.zip --repo bz1121/DeskMes
 
 - 不要替换同名 Release 资产或移动 tag。
 - 立即将受影响 Release 标为有已知问题，并在安全公告或 Issue 中给出缓解措施。
-- 修复后发布递增版本，例如 `0.1.0-alpha.4`。
+- 修复后发布递增版本，例如 `0.1.0-alpha.5`。
 - 若涉及安全问题，按 `SECURITY.md` 协调披露并在 Changelog 标出受影响范围。

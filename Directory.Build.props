@@ -1,7 +1,7 @@
 <Project>
   <PropertyGroup>
     <!-- The public product version is defined once for every .NET project. -->
-    <Version>0.1.0-alpha.3</Version>
+    <Version>0.1.0-alpha.4</Version>
     <Product>DeskMesh</Product>
     <Authors>bz1121</Authors>
     <Description>Secure local-network desktop, input, audio, clipboard, and file sharing for Windows.</Description>
