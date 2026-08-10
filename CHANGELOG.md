@@ -4,10 +4,17 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 
 ## [Unreleased]
 
+## [0.1.0-alpha.3] - 2026-08-10
+
 ### Added
 
 - 新增仅限本机的单一管理员登录、首次设置、独立管理员页面、密码修改和其他会话撤销功能。
 - DeskMesh 托盘现在负责签发 10 分钟有效的一次性首次设置链接，并可在本机确认后重置控制台登录；设备身份、配对关系和显示器映射不会被删除。
+
+### Changed
+
+- 本地控制台采用 Quiet Relay 浅色工作台设计：全局状态栏、图标导航、设备接力控制区和诊断事件卡片在桌面、平板与手机上分别适配，同时保留独立工作区和深链接。
+- 总览页现在直接展示真实本机、目标设备、连接状态和近期诊断信息；控制动作继续复用原有的直接信号、无缝远程和安全回本机流程。
 
 ### Security
 
@@ -53,6 +60,7 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 - 90 FPS 是实验性目标上限，不是所有硬件和网络下的保证值。
 - DDC/CI 行为依赖具体显示器，必须保留实体切源手段。
 
-[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.2...HEAD
+[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.3...HEAD
+[0.1.0-alpha.3]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
 [0.1.0-alpha.1]: https://github.com/bz1121/DeskMesh/releases/tag/v0.1.0-alpha.1
