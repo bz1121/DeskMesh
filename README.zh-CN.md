@@ -44,6 +44,10 @@ Get-FileHash .\DeskMesh-0.1.0-alpha.4-win-x64.zip -Algorithm SHA256
 
 确认输出与 Release 页面及 `SHA256SUMS.txt` 一致后再解压运行。DeskMesh 是便携程序，不安装 SYSTEM 服务，也没有局域网自更新或远程推送程序功能。
 
+解压后直接运行根目录唯一的自包含程序 `DeskMesh.exe`。运行时程序集已经封装进该文件；旁边的 `wwwroot`、`docs` 和 `licenses` 目录仍需与程序一起保留。
+
+当前 Alpha 尚未进行 Authenticode 签名。核对官方 SHA-256 后，Windows SmartScreen 仍可能显示“发布者未知”；只对已验证的 GitHub Release 选择“更多信息 → 仍要运行”。不要全局关闭 SmartScreen。要让其他用户不再看到该提示，后续仍需公共受信任代码签名或 Microsoft Store 发行。
+
 ## 五分钟快速开始
 
 1. 在两台 Windows 电脑分别解压发行 ZIP，运行 `DeskMesh.exe`。

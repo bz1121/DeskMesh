@@ -12,7 +12,11 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\LanSwitch.ico</ApplicationIcon>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
-    <PublishSingleFile>false</PublishSingleFile>
+    <PublishSingleFile Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' == 'win-x64'">true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' == 'win-x64'">true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IsTransformWebConfigDisabled>true</IsTransformWebConfigDisabled>
     <SelfContained>true</SelfContained>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
@@ -28,8 +32,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Update="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Update="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+    <Content Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
     <Content Update="appsettings.Development.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" Condition="'$(Configuration)' == 'Release'" />
+    <Content Update="packages.lock.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
+    <Content Update="packages.win-x64.lock.json" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
   </ItemGroup>
 
   <Target Name="BuildWebConsole" BeforeTargets="PrepareForPublish" Condition="'$(SkipWebBuild)' != 'true'">

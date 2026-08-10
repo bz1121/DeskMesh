@@ -95,7 +95,11 @@ try {
     Copy-Item -LiteralPath "licenses\PHOSPHOR-ICONS-LICENSE.txt" -Destination (Join-Path $packageLicensesDirectory "PHOSPHOR-ICONS-LICENSE.txt")
     Copy-Item -LiteralPath "node_modules\react\LICENSE" -Destination (Join-Path $packageLicensesDirectory "REACT-REACT-DOM-SCHEDULER-LICENSE.txt")
 
-    $deps = Get-Content -LiteralPath (Join-Path $publishDirectory "DeskMesh.deps.json") -Raw | ConvertFrom-Json
+    $depsPath = Join-Path $publishBuildPath "bin\LanSwitch.Agent\release_win-x64\DeskMesh.deps.json"
+    if (-not (Test-Path -LiteralPath $depsPath -PathType Leaf)) {
+        throw "Build dependency manifest missing: $depsPath"
+    }
+    $deps = Get-Content -LiteralPath $depsPath -Raw | ConvertFrom-Json
     $runtimePacks = @(
         @{ Library = "runtimepack.Microsoft.NETCore.App.Runtime.win-x64"; Package = "microsoft.netcore.app.runtime.win-x64"; Prefix = "DOTNET-RUNTIME" },
         @{ Library = "runtimepack.Microsoft.AspNetCore.App.Runtime.win-x64"; Package = "microsoft.aspnetcore.app.runtime.win-x64"; Prefix = "ASPNETCORE-RUNTIME" },
@@ -117,11 +121,25 @@ try {
     }
 
     $forbiddenFiles = @(Get-ChildItem -LiteralPath $publishDirectory -Recurse -File | Where-Object {
-        $_.Extension -ieq ".pdb" -or $_.Name -ieq "appsettings.Development.json"
+        $_.Extension -ieq ".pdb" -or
+        $_.Extension -ieq ".dll" -or
+        $_.Name -ieq "appsettings.Development.json" -or
+        $_.Name -ieq "DeskMesh.deps.json" -or
+        $_.Name -ieq "DeskMesh.runtimeconfig.json" -or
+        $_.Name -ieq "packages.lock.json" -or
+        $_.Name -ieq "packages.win-x64.lock.json" -or
+        $_.Name -ieq "web.config" -or
+        ($_.Extension -ieq ".exe" -and $_.Name -ine "DeskMesh.exe")
     })
     if ($forbiddenFiles.Count -gt 0) {
         $relativePaths = $forbiddenFiles | ForEach-Object { [IO.Path]::GetRelativePath($publishDirectory, $_.FullName) }
         throw "Publish output contains files forbidden from the public package: $($relativePaths -join ', ')"
+    }
+
+    foreach ($requiredPath in @("DeskMesh.exe", "appsettings.json", "wwwroot\index.html")) {
+        if (-not (Test-Path -LiteralPath (Join-Path $publishDirectory $requiredPath) -PathType Leaf)) {
+            throw "Required portable package file missing: $requiredPath"
+        }
     }
 
     $manifest = [ordered]@{

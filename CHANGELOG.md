@@ -4,6 +4,10 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 
 ## [Unreleased]
 
+### Changed
+
+- Windows x64 便携包改为自包含单文件发布：数百个松散运行时 DLL 现在封装进根目录的 `DeskMesh.exe`，网页资源、文档与许可证继续保留在清晰的子目录中。
+
 ## [0.1.0-alpha.4] - 2026-08-10
 
 ### Changed

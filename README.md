@@ -43,6 +43,10 @@ Get-FileHash .\DeskMesh-0.1.0-alpha.4-win-x64.zip -Algorithm SHA256
 
 Compare the result with `SHA256SUMS.txt` on the release page before extracting the archive. DeskMesh is portable: it does not install a SYSTEM service and does not include LAN self-update or remote software-push functionality.
 
+After extraction, launch the single self-contained `DeskMesh.exe` in the package root. Runtime assemblies are bundled into that executable; the adjacent `wwwroot`, `docs`, and `licenses` directories must remain beside it.
+
+The current Alpha is not Authenticode-signed. After verifying the official checksum, Windows SmartScreen may still show **Unknown publisher**; choose **More info → Run anyway** only for the verified GitHub release. Do not disable SmartScreen globally. A future public-trust code-signing identity or Microsoft Store package is required to remove this warning for other users.
+
 ## Five-minute quick start
 
 1. Extract the release ZIP on both Windows PCs and run `DeskMesh.exe` on each one.

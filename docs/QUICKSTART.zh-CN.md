@@ -6,9 +6,11 @@
 
 1. 从 [GitHub Releases](https://github.com/bz1121/deskmesh/releases) 下载 Windows x64 ZIP 与 `SHA256SUMS.txt`。
 2. 使用 `Get-FileHash <zip> -Algorithm SHA256` 校验后，在两台电脑分别解压。
-3. 运行 `DeskMesh.exe`。程序仅为当前登录用户运行，不安装 SYSTEM 服务。
+3. 运行解压目录根部唯一的自包含程序 `DeskMesh.exe`。不要单独移动该文件，旁边的 `wwwroot`、`docs`、`licenses` 与配置文件需要一起保留。程序仅为当前登录用户运行，不安装 SYSTEM 服务。
 4. Windows 防火墙弹窗只勾选“专用网络”。
 5. 首次使用时从 DeskMesh 托盘菜单打开控制台，不要直接从浏览器开始管理员设置。
+
+当前 Alpha 尚未进行 Authenticode 签名。若官方 ZIP 的 SHA-256 已与 Release 页面一致，但 SmartScreen 仍显示“发布者未知”，可选择“更多信息 → 仍要运行”。也可以在**解压前**对已验证的 ZIP 执行 `Unblock-File .\DeskMesh-<版本>-win-x64.zip`，再重新解压；不要全局关闭 SmartScreen，也不要对来源不明的副本解除锁定。
 
 端口：
 
