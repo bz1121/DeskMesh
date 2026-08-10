@@ -92,6 +92,7 @@ try {
     $packageLicensesDirectory = Join-Path $publishDirectory "licenses"
     New-Item -ItemType Directory -Path $packageLicensesDirectory -Force | Out-Null
     Copy-Item -LiteralPath "licenses\NAUDIO-LICENSE.txt" -Destination (Join-Path $packageLicensesDirectory "NAUDIO-LICENSE.txt")
+    Copy-Item -LiteralPath "licenses\PHOSPHOR-ICONS-LICENSE.txt" -Destination (Join-Path $packageLicensesDirectory "PHOSPHOR-ICONS-LICENSE.txt")
     Copy-Item -LiteralPath "node_modules\react\LICENSE" -Destination (Join-Path $packageLicensesDirectory "REACT-REACT-DOM-SCHEDULER-LICENSE.txt")
 
     $deps = Get-Content -LiteralPath (Join-Path $publishDirectory "DeskMesh.deps.json") -Raw | ConvertFrom-Json

@@ -11,6 +11,7 @@ DeskMesh（桌联）本身按 [MIT License](LICENSE) 发布。发行包和构建
 | Windows Forms 10 | Windows 托盘和本机对话框 | MIT | https://github.com/dotnet/winforms |
 | NAudio 2.3.0 | Windows 系统音频捕获和播放 | MIT | https://github.com/naudio/NAudio |
 | React / React DOM 19、Scheduler 0.27 | 本地控制台运行时代码 | MIT | https://github.com/facebook/react |
+| Phosphor Icons for React 2.1.10 | 本地控制台界面图标 | MIT | https://github.com/phosphor-icons/react |
 
 官方便携 ZIP 的 `licenses/` 目录随包提供以下原始许可与通知：
 
@@ -18,6 +19,7 @@ DeskMesh（桌联）本身按 [MIT License](LICENSE) 发布。发行包和构建
 - .NET Runtime 与 ASP.NET Core Runtime 的完整第三方通知；
 - NAudio 的 MIT License；
 - React、React DOM 与 Scheduler 共用的 MIT License。
+- Phosphor Icons 的 MIT License。
 
 ## 仅构建或测试时组件
 

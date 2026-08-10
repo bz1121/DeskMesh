@@ -1,4 +1,5 @@
 import {
+  type ElementType,
   type ChangeEvent,
   type DragEvent,
   type FormEvent,
@@ -9,6 +10,19 @@ import {
   useRef,
   useState,
 } from "react";
+import { ArrowsClockwiseIcon } from "@phosphor-icons/react/dist/csr/ArrowsClockwise";
+import { CheckCircleIcon } from "@phosphor-icons/react/dist/csr/CheckCircle";
+import { ClipboardTextIcon } from "@phosphor-icons/react/dist/csr/ClipboardText";
+import { DesktopIcon } from "@phosphor-icons/react/dist/csr/Desktop";
+import { FilesIcon } from "@phosphor-icons/react/dist/csr/Files";
+import { GearSixIcon } from "@phosphor-icons/react/dist/csr/GearSix";
+import { HouseIcon } from "@phosphor-icons/react/dist/csr/House";
+import { LockSimpleIcon } from "@phosphor-icons/react/dist/csr/LockSimple";
+import { MonitorIcon } from "@phosphor-icons/react/dist/csr/Monitor";
+import { MonitorPlayIcon } from "@phosphor-icons/react/dist/csr/MonitorPlay";
+import { ShieldCheckIcon } from "@phosphor-icons/react/dist/csr/ShieldCheck";
+import { TerminalWindowIcon } from "@phosphor-icons/react/dist/csr/TerminalWindow";
+import { UserCircleIcon } from "@phosphor-icons/react/dist/csr/UserCircle";
 import {
   ApiError,
   apiRequest,
@@ -39,6 +53,7 @@ import RemoteDesktopPanel, {
 } from "./RemoteDesktopPanel";
 import AdminPage from "./AdminPage";
 import { useAdminAuth } from "./AuthGate";
+import QuietRelayOverview from "./QuietRelayOverview";
 
 const DEFAULT_POLICY: ClipboardPolicy = {
   enabled: false,
@@ -170,6 +185,29 @@ const CONSOLE_PAGE_IDS = new Set<ConsolePage>(
   CONSOLE_PAGES.map((page) => page.id),
 );
 
+const PRIMARY_NAV_PAGES: readonly ConsolePage[] = [
+  "overview",
+  "devices",
+  "remote-desktop",
+  "files",
+  "display",
+  "security",
+];
+
+const SECONDARY_NAV_PAGES: readonly ConsolePage[] = ["clipboard", "diagnostics"];
+
+const PAGE_ICONS: Record<ConsolePage, ElementType> = {
+  overview: HouseIcon,
+  devices: DesktopIcon,
+  "remote-desktop": MonitorPlayIcon,
+  clipboard: ClipboardTextIcon,
+  files: FilesIcon,
+  display: MonitorIcon,
+  security: ShieldCheckIcon,
+  admin: GearSixIcon,
+  diagnostics: TerminalWindowIcon,
+};
+
 function pageFromHash(hash: string): ConsolePage | null {
   let candidate = "";
   try {
@@ -233,6 +271,8 @@ export default function ControlConsole() {
   const [switchModeLoaded, setSwitchModeLoaded] = useState(false);
   const [seamlessSession, setSeamlessSession] =
     useState<SeamlessSessionSnapshot | null>(null);
+  const [overviewTargetId, setOverviewTargetId] = useState("");
+  const [headerNow, setHeaderNow] = useState(() => new Date());
   const seamlessSessionRef = useRef<SeamlessSessionSnapshot | null>(null);
   const refreshing = useRef(false);
   const hotkeysDirty = useRef(false);
@@ -303,6 +343,11 @@ export default function ControlConsole() {
   useEffect(() => {
     document.title = `${activePageMeta.title} · DeskMesh`;
   }, [activePageMeta.title]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setHeaderNow(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(
     () => () => {
@@ -750,6 +795,107 @@ export default function ControlConsole() {
       : connection === "checking"
         ? "正在连接本机代理"
         : "本机代理离线";
+  const overviewTargetOptions = snapshot.peers
+    .filter((peer) => peer.paired !== false && peer.id !== status?.deviceId)
+    .sort((left, right) => Number(Boolean(right.online)) - Number(Boolean(left.online)));
+  const overviewTargetPeer =
+    overviewTargetOptions.find((peer) => peer.id === overviewTargetId) ??
+    overviewTargetOptions.find((peer) => peer.id === activeDeviceId) ??
+    overviewTargetOptions.find((peer) => peer.online) ??
+    overviewTargetOptions[0] ??
+    null;
+  const overviewTargetActive = Boolean(
+    overviewTargetPeer &&
+      overviewTargetPeer.id === activeDeviceId &&
+      (seamlessSessionActive || status?.focus?.isRemote),
+  );
+  const overviewRemoteDesktopReady = Boolean(
+    overviewTargetPeer?.online &&
+      (overviewTargetPeer.capabilities ?? []).some(
+        (capability) => capability.toLowerCase() === "remote-desktop",
+      ),
+  );
+  const overviewPrimaryBusy = Boolean(
+    overviewTargetPeer &&
+      (busy === `switch-${overviewTargetPeer.id}` ||
+        seamlessSession?.targetDeviceId === overviewTargetPeer.id &&
+          seamlessSession.phase !== "connected"),
+  );
+  const overviewPrimaryDisabled = Boolean(
+    !overviewTargetPeer ||
+      connection !== "online" ||
+      !overviewTargetPeer.online ||
+      overviewTargetPeer.paired === false ||
+      (seamlessSessionActive &&
+        seamlessSession?.targetDeviceId !== overviewTargetPeer.id) ||
+      (switchMode === "seamlessRemote" && !overviewRemoteDesktopReady),
+  );
+  const overviewHealthMessage =
+    connection !== "online"
+      ? "正在等待本机 Agent 提供键鼠、音频与显示器状态"
+      : [
+          status?.focus?.isRemote || seamlessSessionActive
+            ? `控制权正在 ${activeDeviceName}`
+            : "键鼠在本机",
+          audioEnabled ? "音频已启用" : "音频未启用",
+          status?.display?.supported
+            ? status.display.stable === false
+              ? "显示器状态不稳定"
+              : "显示器连接正常"
+            : "显示器尚未校准",
+        ].join("、");
+
+  function peerScreenSwitchReady(peer: PeerSummary) {
+    const localDisplayMapping = selectedDisplay?.mappings?.find(
+      (mapping) => mapping.deviceId === status?.deviceId,
+    );
+    const peerDisplayMapping = selectedDisplay?.mappings?.find(
+      (mapping) => mapping.deviceId === peer.id,
+    );
+    return Boolean(
+      localDisplayMapping &&
+        peerDisplayMapping &&
+        localDisplayMapping.vcpValue !== peerDisplayMapping.vcpValue,
+    );
+  }
+
+  function releaseToLocal(successMessage = "控制权已安全回到本机。") {
+    if (seamlessSessionActive) {
+      remoteDesktopRef.current?.stopSeamless("已返回本机。");
+    }
+    return runAction(
+      "focus-release",
+      () =>
+        apiRequest<WriteResult>(
+          "/api/v1/focus/release",
+          jsonRequest("POST"),
+        ),
+      successMessage,
+    );
+  }
+
+  function activatePeer(peer: PeerSummary) {
+    if (!peer.paired) {
+      chooseDiscoveredPeer(peer);
+      return;
+    }
+    if (switchMode === "seamlessRemote") {
+      remoteDesktopRef.current?.startSeamless(peer.id);
+      return;
+    }
+    void runAction(
+      `switch-${peer.id}`,
+      () =>
+        apiRequest<WriteResult>(
+          "/api/v1/focus/switch",
+          jsonRequest("POST", { targetDeviceId: peer.id }),
+          15_000,
+        ),
+      peerScreenSwitchReady(peer)
+        ? `正在把画面与控制权切换到 ${peer.name || "远端设备"}。`
+        : "键鼠控制已切换；显示器尚未完成双向校准，请用实体键切换画面。",
+    );
+  }
 
   function chooseDiscoveredPeer(peer: PeerSummary) {
     if (!peer.address) return;
@@ -1274,95 +1420,137 @@ export default function ControlConsole() {
         跳到主要内容
       </a>
 
-      <aside className="sidebar" aria-label="主导航">
-        <div className="brand-block">
-          <span className="brand-mark" aria-hidden="true">
-            {/* The same Vite-served asset is shared by the web console and tray package. */}
-            <img src="/lanswitch-icon.png" alt="" width="42" height="42" />
+      <header className="global-header">
+        <div className="global-brand" aria-label="DeskMesh 本地控制台">
+          <span className="global-brand-mark" aria-hidden="true">
+            <img src="/lanswitch-icon.png" alt="" width="38" height="38" />
           </span>
-          <div>
-            <strong>DeskMesh</strong>
-            <span>本地控制台</span>
+          <strong>DeskMesh</strong>
+          <span className="global-brand-divider" aria-hidden="true" />
+          <span className="global-device-name">{status?.deviceName || "本机"}</span>
+        </div>
+
+        <div className="global-header-status">
+          <div className={`header-agent-status ${connection}`} role="status" aria-live="polite">
+            <span className={`status-dot ${connection}`} aria-hidden="true" />
+            <span>{connectionLabel}</span>
           </div>
+          <time className="header-clock" dateTime={headerNow.toISOString()}>
+            <span>{formatHeaderDate(headerNow)}</span>
+            <strong>{formatHeaderTime(headerNow)}</strong>
+          </time>
+          <a
+            className="header-admin-link"
+            href="#/admin"
+            aria-label={`打开管理员设置，当前管理员 ${auth.username || "本机管理员"}`}
+            onClick={(event) => {
+              event.preventDefault();
+              navigateToPage("admin");
+            }}
+          >
+            <UserCircleIcon size={28} weight="duotone" aria-hidden="true" />
+            <span>{auth.username || "管理员"}</span>
+          </a>
+          <button
+            className="header-icon-button"
+            type="button"
+            disabled={endingSession}
+            onClick={() => void handleConsoleLock()}
+            aria-label={endingSession ? "正在锁定控制台" : "锁定控制台"}
+            title="锁定控制台"
+          >
+            <LockSimpleIcon size={19} aria-hidden="true" />
+          </button>
+          <button
+            className={`header-icon-button ${busy === "refresh" ? "is-spinning" : ""}`}
+            type="button"
+            onClick={() => void refreshSnapshot()}
+            disabled={busy === "refresh"}
+            aria-label={busy === "refresh" ? "正在刷新所有状态" : "刷新所有状态"}
+            aria-busy={busy === "refresh"}
+            title="刷新状态"
+          >
+            <ArrowsClockwiseIcon size={19} aria-hidden="true" />
+          </button>
         </div>
+      </header>
 
+      <aside className="sidebar" aria-label="主导航">
         <nav className="side-nav" aria-label="控制台页面">
-          {(["控制", "共享", "系统"] as const).map((group) => (
-            <div className="side-nav-group" key={group}>
-              <span className="side-nav-group-label">{group}</span>
-              {CONSOLE_PAGES.filter((page) => page.group === group).map(
-                (page) => (
-                  <a
-                    key={page.id}
-                    href={`#/${page.id}`}
-                    aria-current={activePage === page.id ? "page" : undefined}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      navigateToPage(page.id);
-                    }}
-                  >
-                    <span>{page.label}</span>
-                  </a>
-                ),
-              )}
-            </div>
-          ))}
+          <div className="side-nav-primary">
+            {PRIMARY_NAV_PAGES.map((pageId) => {
+              const page = CONSOLE_PAGES.find((candidate) => candidate.id === pageId)!;
+              const PageIcon = PAGE_ICONS[page.id];
+              return (
+                <a
+                  key={page.id}
+                  href={`#/${page.id}`}
+                  aria-current={activePage === page.id ? "page" : undefined}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    navigateToPage(page.id);
+                  }}
+                >
+                  <PageIcon
+                    size={21}
+                    weight={activePage === page.id ? "duotone" : "regular"}
+                    aria-hidden="true"
+                  />
+                  <span>{page.label}</span>
+                </a>
+              );
+            })}
+          </div>
+          <div className="side-nav-secondary" aria-label="辅助页面">
+            {[...SECONDARY_NAV_PAGES, "admin" as const].map((pageId) => {
+              const page = CONSOLE_PAGES.find((candidate) => candidate.id === pageId)!;
+              const PageIcon = PAGE_ICONS[page.id];
+              return (
+                <a
+                  key={page.id}
+                  href={`#/${page.id}`}
+                  aria-current={activePage === page.id ? "page" : undefined}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    navigateToPage(page.id);
+                  }}
+                >
+                  <PageIcon
+                    size={20}
+                    weight={activePage === page.id ? "duotone" : "regular"}
+                    aria-hidden="true"
+                  />
+                  <span>{page.label}</span>
+                </a>
+              );
+            })}
+          </div>
         </nav>
-
-        <div className="sidebar-foot">
-          <span className={`status-dot ${connection}`} aria-hidden="true" />
-          <span>{connectionLabel}</span>
-          {status?.version ? <small>Agent {status.version}</small> : null}
-        </div>
       </aside>
 
       <main id="main-content" className="main-content" tabIndex={-1}>
-        <header className="topbar">
-          <div className="topbar-copy">
+        <header className="page-intro">
+          <div className="page-intro-copy">
             <p className="eyebrow">{activePageMeta.eyebrow}</p>
-            <h1 ref={pageTitleRef} tabIndex={-1}>{activePageMeta.title}</h1>
-            <p className="topbar-description">{activePageMeta.description}</p>
+            <h1
+              id={activePage === "overview" ? "overview-title" : undefined}
+              ref={pageTitleRef}
+              tabIndex={-1}
+            >
+              {activePage === "overview"
+                ? `控制权在${status?.focus?.isRemote || seamlessSessionActive ? "远端" : "本机"} ${activeDeviceName}`
+                : activePageMeta.title}
+            </h1>
+            <p className={`page-intro-description ${activePage === "overview" ? "is-health" : ""}`}>
+              {activePage === "overview" ? (
+                <CheckCircleIcon size={18} weight="fill" aria-hidden="true" />
+              ) : null}
+              <span>{activePage === "overview" ? overviewHealthMessage : activePageMeta.description}</span>
+            </p>
           </div>
-          <div className="topbar-actions">
-            <div
-              className={`connection-chip ${connection}`}
-              role="status"
-              aria-live="polite"
-            >
-              <span className={`status-dot ${connection}`} aria-hidden="true" />
-              {connectionLabel}
-            </div>
-            <div className="admin-session-control" aria-label="当前管理员会话">
-              <a
-                href="#/admin"
-                aria-label={`打开管理员设置，当前管理员 ${auth.username || "本机管理员"}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  navigateToPage("admin");
-                }}
-              >
-                <small>管理员</small>
-                <strong>{auth.username || "本机管理员"}</strong>
-              </a>
-              <button
-                type="button"
-                disabled={endingSession}
-                onClick={() => void handleConsoleLock()}
-              >
-                {endingSession ? "锁定中…" : "锁定"}
-              </button>
-            </div>
-            <button
-              className="icon-button"
-              type="button"
-              onClick={() => void refreshSnapshot()}
-              disabled={busy === "refresh"}
-              aria-label={busy === "refresh" ? "正在刷新所有状态" : "刷新所有状态"}
-              aria-busy={busy === "refresh"}
-              title="刷新状态"
-            >
-              ↻
-            </button>
+          <div className="page-intro-assurance">
+            <ShieldCheckIcon size={20} weight="duotone" aria-hidden="true" />
+            <span>安全连接 · 仅限可信设备</span>
           </div>
         </header>
 
@@ -1372,8 +1560,12 @@ export default function ControlConsole() {
             value={activePage}
             onChange={(event) => navigateToPage(event.target.value as ConsolePage)}
           >
-            {CONSOLE_PAGES.map((page) => (
-              <option key={page.id} value={page.id}>{page.label}</option>
+            {(["控制", "共享", "系统"] as const).map((group) => (
+              <optgroup key={group} label={group}>
+                {CONSOLE_PAGES.filter((page) => page.group === group).map((page) => (
+                  <option key={page.id} value={page.id}>{page.label}</option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </label>
@@ -1435,159 +1627,36 @@ export default function ControlConsole() {
 
         <section
           id="overview"
-          className="overview-grid page-view"
+          className="page-view"
           aria-labelledby="overview-title"
           hidden={activePage !== "overview"}
         >
-          <article className="focus-card">
-            <div className="section-heading inverse">
-              <div>
-                <p className="eyebrow">当前控制目标</p>
-                <h2 id="overview-title">{activeDeviceName}</h2>
-              </div>
-              <span
-                className={`focus-state ${seamlessSessionActive || status?.focus?.isRemote ? "remote" : "local"}`}
-              >
-                {seamlessSessionActive
-                  ? "无缝远程"
-                  : status?.focus?.isRemote
-                    ? "远端控制"
-                    : "本机控制"}
-              </span>
-            </div>
-
-            <p className="focus-copy">
-              {seamlessSession
-                ? seamlessSession.message
-                : connection === "online"
-                  ? focusDescription(status)
-                : "Agent 上线后，这里会显示真实的控制权状态。"}
-            </p>
-
-            <div className="focus-actions">
-              <button
-                className="primary-button light"
-                type="button"
-                disabled={
-                  busy === "focus-release" ||
-                  (!seamlessSessionActive &&
-                    (connection !== "online" ||
-                      !status?.focus?.isRemote ||
-                      busy === "focus-release"))
-                }
-                onClick={() => {
-                  if (seamlessSessionActive) {
-                    remoteDesktopRef.current?.stopSeamless("已返回本机。");
-                  }
-                  void runAction(
-                    "focus-release",
-                    () =>
-                      apiRequest<WriteResult>(
-                        "/api/v1/focus/release",
-                        jsonRequest("POST"),
-                      ),
-                    "控制权已安全回到本机。",
-                  );
-                }}
-              >
-                {seamlessSessionActive
-                  ? "返回本机"
-                  : busy === "focus-release"
-                    ? "正在释放…"
-                    : "释放到本机"}
-              </button>
-              <span>紧急热键：{security?.emergencyHotkey || "等待 Agent"}</span>
-            </div>
-          </article>
-
-          <div className="metric-stack">
-            <Metric
-              label="发现的远端"
-              value={connection === "online" ? String(snapshot.peers.length) : "—"}
-              hint={
-                connection === "online"
-                  ? `${onlinePeers.length} 台已配对在线`
-                  : "无在线数据"
-              }
-            />
-            <Metric
-              label="事件通道"
-              value={eventsConnected ? "实时" : "轮询"}
-              hint={lastSync ? `更新于 ${formatClock(lastSync)}` : "尚未同步"}
-            />
-            <Metric
-              label="实体切源跟随"
-              value={
-                connection === "online"
-                  ? physicalFollowEnabled
-                    ? physicalFollowWaitingRemote
-                      ? "等待远端确认"
-                      : "已启用"
-                    : physicalFollowLostDdc
-                      ? "已自动停用"
-                    : "未启用"
-                  : "—"
-              }
-              hint={
-                writeOnlyEnabled
-                  ? "只写模式无法使用实体跟随"
-                  : physicalFollowWaitingRemote
-                    ? "原输入端 DDC/CI 已失联，正在由另一台 Agent 检测新画面"
-                  : physicalFollowLostDdc
-                    ? "切源后原输入端失去 DDC/CI"
-                  : status?.display?.supported
-                    ? status.display.stable === false
-                    ? "DDC/CI 状态不稳定"
-                      : physicalFollowHasMappings
-                        ? "可在显示器校准中启用"
-                        : "需先保存本机与远端两个输入映射"
-                    : "等待能力检测"
-              }
-            />
-          </div>
-
-          <nav className="overview-shortcuts" aria-label="常用功能">
-            {[
-              {
-                page: "devices" as const,
-                number: "01",
-                title: "切换设备",
-                description: "选择直接信号或无缝远程模式。",
-              },
-              {
-                page: "remote-desktop" as const,
-                number: "02",
-                title: "打开远程桌面",
-                description: "查看画面、声音与会话状态。",
-              },
-              {
-                page: "files" as const,
-                number: "03",
-                title: "传送文件",
-                description: "拖放文件并跟踪收发请求。",
-              },
-              {
-                page: "security" as const,
-                number: "04",
-                title: "配对新设备",
-                description: "生成配对码并确认设备身份。",
-              },
-            ].map((shortcut) => (
-              <a
-                key={shortcut.page}
-                href={`#/${shortcut.page}`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  navigateToPage(shortcut.page);
-                }}
-              >
-                <span>{shortcut.number}</span>
-                <strong>{shortcut.title}</strong>
-                <small>{shortcut.description}</small>
-                <b aria-hidden="true">进入 →</b>
-              </a>
-            ))}
-          </nav>
+          <QuietRelayOverview
+            connection={connection}
+            localName={status?.deviceName || "等待本机代理"}
+            localRole={roleLabel(status?.role)}
+            localNetwork={networkLabel(status?.network)}
+            localUptime={formatUptime(status?.uptimeSeconds)}
+            adminName={auth.username || "本机管理员"}
+            target={overviewTargetPeer}
+            targetOptions={overviewTargetOptions}
+            targetActive={overviewTargetActive}
+            switchMode={switchMode}
+            primaryBusy={overviewPrimaryBusy}
+            primaryDisabled={overviewPrimaryDisabled}
+            remoteDesktopReady={overviewRemoteDesktopReady}
+            eventsLive={eventsConnected}
+            events={snapshot.diagnostics}
+            onTargetChange={setOverviewTargetId}
+            onPrimary={() => {
+              if (overviewTargetPeer) activatePeer(overviewTargetPeer);
+              else navigateToPage("devices");
+            }}
+            onRelease={() => void releaseToLocal()}
+            onOpenRemote={() => navigateToPage("remote-desktop")}
+            onOpenDevices={() => navigateToPage("devices")}
+            onOpenDiagnostics={() => navigateToPage("diagnostics")}
+          />
         </section>
 
         <section
@@ -1685,18 +1754,7 @@ export default function ControlConsole() {
                       busy === "focus-release"))
                 }
                 onClick={() => {
-                  if (seamlessSessionActive) {
-                    remoteDesktopRef.current?.stopSeamless("已返回本机。");
-                  }
-                  void runAction(
-                    "focus-release",
-                    () =>
-                      apiRequest<WriteResult>(
-                        "/api/v1/focus/release",
-                        jsonRequest("POST"),
-                      ),
-                    "控制权已回到本机。",
-                  );
+                  void releaseToLocal("控制权已回到本机。");
                 }}
               >
                 {activeDeviceId === status?.deviceId && !status?.focus?.isRemote && !seamlessSessionActive
@@ -1715,17 +1773,7 @@ export default function ControlConsole() {
                 const supportsSeamlessRemote = (peer.capabilities ?? []).some(
                   (capability) => capability.toLowerCase() === "remote-desktop",
                 );
-                const localDisplayMapping = selectedDisplay?.mappings?.find(
-                  (mapping) => mapping.deviceId === status?.deviceId,
-                );
-                const peerDisplayMapping = selectedDisplay?.mappings?.find(
-                  (mapping) => mapping.deviceId === peer.id,
-                );
-                const screenSwitchReady = Boolean(
-                  localDisplayMapping &&
-                    peerDisplayMapping &&
-                    localDisplayMapping.vcpValue !== peerDisplayMapping.vcpValue,
-                );
+                const screenSwitchReady = peerScreenSwitchReady(peer);
                 return (
                   <article className={`device-card ${isActive ? "active" : ""}`} key={peer.id}>
                     <div className="device-card-head">
@@ -1767,26 +1815,7 @@ export default function ControlConsole() {
                           (!peer.paired && !peer.address)
                         }
                         onClick={() => {
-                          if (!peer.paired) {
-                            chooseDiscoveredPeer(peer);
-                            return;
-                          }
-                          if (switchMode === "seamlessRemote") {
-                            remoteDesktopRef.current?.startSeamless(peer.id);
-                            return;
-                          }
-                          void runAction(
-                                `switch-${peer.id}`,
-                                () =>
-                                  apiRequest<WriteResult>(
-                                    "/api/v1/focus/switch",
-                                    jsonRequest("POST", { targetDeviceId: peer.id }),
-                                    15_000,
-                                  ),
-                                screenSwitchReady
-                                  ? `正在把画面与控制权切换到 ${peer.name || "远端设备"}。`
-                                  : "键鼠控制已切换；显示器尚未完成双向校准，请用实体键切换画面。",
-                              );
+                          activatePeer(peer);
                         }}
                       >
                         {isSeamlessTarget
@@ -2991,16 +3020,6 @@ export default function ControlConsole() {
   );
 }
 
-function Metric({ label, value, hint }: { label: string; value: string; hint: string }) {
-  return (
-    <article className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small>{hint}</small>
-    </article>
-  );
-}
-
 function SectionHeader({
   id,
   eyebrow,
@@ -3082,24 +3101,6 @@ function getErrorMessage(error: unknown) {
     return "切换确认超时，已安全恢复本机控制；请确认两台 Agent 在线后重试。";
   }
   return message;
-}
-
-function focusDescription(status: AgentStatus | null) {
-  if (!status?.focus) return "Agent 尚未报告控制权状态。";
-  const phase = phaseLabel(status.focus.phase);
-  const epoch = status.focus.epoch != null ? ` · 会话 ${status.focus.epoch}` : "";
-  return `${phase}${epoch}。切换时会先释放按键状态，断线则自动回退本机。`;
-}
-
-function phaseLabel(phase?: string) {
-  const labels: Record<string, string> = {
-    local: "本机输入正常",
-    preparingRemote: "正在准备远端控制",
-    remote: "输入正在发送到远端",
-    recovering: "正在恢复本机输入",
-    switching: "正在切换控制目标",
-  };
-  return phase ? labels[phase] || phase : "控制状态正常";
 }
 
 function roleLabel(role?: string) {
@@ -3206,6 +3207,24 @@ function formatClock(date: Date) {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function formatHeaderDate(date: Date) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  })
+    .format(date)
+    .replaceAll("/", "-");
+}
+
+function formatHeaderTime(date: Date) {
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
     hour12: false,
   }).format(date);
 }
