@@ -8,7 +8,7 @@
 
 DeskMesh 是面向 Windows 10/11 x64 的局域网桌面互联工具。两台可信电脑运行同一个托盘 Agent，即可共享键鼠、系统音频、远程桌面、文本/图片剪贴板和确认式文件传输；共用一台支持 DDC/CI 的显示器时，还可联动 HDMI1 与 DP 输入源。
 
-> **Alpha 提示：** 当前公开版本为 `v0.1.0-alpha.4`。远程桌面、音频与 DDC/CI 属于实验能力；90 FPS 是配置上限，不是所有电脑或网络都能达到的保证值。发行 EXE 暂未进行 Authenticode 签名，Windows SmartScreen 可能提示“未知发布者”。
+> **Alpha 提示：** 当前公开版本为 `v0.1.0-alpha.5`。远程桌面、音频与 DDC/CI 属于实验能力；90 FPS 是配置上限，不是所有电脑或网络都能达到的保证值。发行 EXE 暂未进行 Authenticode 签名，Windows SmartScreen 可能提示“未知发布者”。
 
 DeskMesh 不依赖云服务。本地中文控制台只监听 `127.0.0.1:5616`；设备间使用 `45832/TCP`、双向 TLS、ECDSA 设备身份及证书指纹固定，自动发现使用 `45830/UDP`。
 
@@ -34,12 +34,12 @@ DeskMesh 不依赖云服务。本地中文控制台只监听 `127.0.0.1:5616`；
 ## 下载与校验
 
 从 [GitHub Releases](https://github.com/bz1121/DeskMesh/releases) 下载
-`DeskMesh-0.1.0-alpha.4-win-x64.zip` 和 `SHA256SUMS.txt`。两台电脑必须使用同一版本。
+`DeskMesh-0.1.0-alpha.5-win-x64.zip` 和 `SHA256SUMS.txt`。两台电脑必须使用同一版本。
 
 PowerShell 校验：
 
 ```powershell
-Get-FileHash .\DeskMesh-0.1.0-alpha.4-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeskMesh-0.1.0-alpha.5-win-x64.zip -Algorithm SHA256
 ```
 
 确认输出与 Release 页面及 `SHA256SUMS.txt` 一致后再解压运行。DeskMesh 是便携程序，不安装 SYSTEM 服务，也没有局域网自更新或远程推送程序功能。

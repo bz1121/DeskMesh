@@ -4,9 +4,15 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 
 ## [Unreleased]
 
+## [0.1.0-alpha.5] - 2026-08-10
+
 ### Changed
 
 - Windows x64 便携包改为自包含单文件发布：数百个松散运行时 DLL 现在封装进根目录的 `DeskMesh.exe`，网页资源、文档与许可证继续保留在清晰的子目录中。
+
+### Security
+
+- 补充未签名 Alpha 的 SmartScreen 安全说明：只对已核验官方 SHA-256 的下载选择“仍要运行”或解除 ZIP 锁定，不应全局关闭 SmartScreen；公共发行仍需受信任 Authenticode 或 Microsoft Store。
 
 ## [0.1.0-alpha.4] - 2026-08-10
 
@@ -75,7 +81,8 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 - 90 FPS 是实验性目标上限，不是所有硬件和网络下的保证值。
 - DDC/CI 行为依赖具体显示器，必须保留实体切源手段。
 
-[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.4...HEAD
+[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.5...HEAD
+[0.1.0-alpha.5]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.4...v0.1.0-alpha.5
 [0.1.0-alpha.4]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.3...v0.1.0-alpha.4
 [0.1.0-alpha.3]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.2...v0.1.0-alpha.3
 [0.1.0-alpha.2]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.1...v0.1.0-alpha.2
