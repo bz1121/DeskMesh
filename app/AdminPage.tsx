@@ -5,6 +5,7 @@ import {
   type AuthStatus,
   type ConnectionState,
   jsonRequest,
+  MINIMUM_ADMIN_PASSWORD_LENGTH,
   resetSessionToken,
   type SessionRevokeResult,
 } from "../web/api";
@@ -42,8 +43,8 @@ export default function AdminPage({
     event.preventDefault();
     setPasswordError(null);
     setPasswordSuccess(null);
-    if (newPassword.length < 12) {
-      setPasswordError("新密码至少需要 12 个字符。");
+    if (newPassword.length < MINIMUM_ADMIN_PASSWORD_LENGTH) {
+      setPasswordError(`新密码至少需要 ${MINIMUM_ADMIN_PASSWORD_LENGTH} 个字符。`);
       return;
     }
     if (newPassword !== passwordConfirmation) {
@@ -220,7 +221,7 @@ export default function AdminPage({
             show={showPasswords}
             autoComplete="new-password"
             disabled={passwordBusy}
-            hint="至少 12 个字符。"
+            hint={`至少 ${MINIMUM_ADMIN_PASSWORD_LENGTH} 个字符；建议使用更长密码。`}
             onChange={setNewPassword}
             onToggle={() => setShowPasswords((value) => !value)}
           />
@@ -295,7 +296,7 @@ function AdminPasswordField({
         <input
           type={show ? "text" : "password"}
           value={value}
-          minLength={autoComplete === "new-password" ? 12 : undefined}
+          minLength={autoComplete === "new-password" ? MINIMUM_ADMIN_PASSWORD_LENGTH : undefined}
           maxLength={256}
           autoComplete={autoComplete}
           disabled={disabled}

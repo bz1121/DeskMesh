@@ -50,7 +50,7 @@ public static class ApiEndpoints
             }
             if (context.Connection.LocalPort == options.WebPort)
             {
-                ApplyLocalSecurityHeaders(context.Response, path.StartsWithSegments("/api/v1"));
+                ApplyLocalSecurityHeaders(context.Response, path);
                 if (!IPAddress.IsLoopback(context.Connection.RemoteIpAddress ?? IPAddress.None) ||
                     !IsLoopbackHost(context.Request.Host.Host))
                 {
@@ -750,7 +750,7 @@ public static class ApiEndpoints
     private static bool IsLoopbackHost(string host) => string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
         (IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address));
 
-    private static void ApplyLocalSecurityHeaders(HttpResponse response, bool isApi)
+    internal static void ApplyLocalSecurityHeaders(HttpResponse response, PathString path)
     {
         response.Headers.ContentSecurityPolicy =
             "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; " +
@@ -761,7 +761,24 @@ public static class ApiEndpoints
         response.Headers.XContentTypeOptions = "nosniff";
         response.Headers["Referrer-Policy"] = "no-referrer";
         response.Headers["Permissions-Policy"] = "camera=(), geolocation=(), microphone=()";
-        if (isApi) response.Headers.CacheControl = "no-store";
+        ApplyLocalCachePolicy(response, path);
+    }
+
+    internal static void ApplyLocalCachePolicy(HttpResponse response, PathString path)
+    {
+        if (path.StartsWithSegments("/api"))
+        {
+            response.Headers.CacheControl = "no-store";
+            return;
+        }
+
+        // The console previously used stable asset names. Without an explicit policy,
+        // browsers could combine a newly upgraded Agent with an older cached UI bundle.
+        // Revalidate every local console resource so authentication and API contracts
+        // always come from the same installed version.
+        response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+        response.Headers.Pragma = "no-cache";
+        response.Headers.Expires = "0";
     }
     private static bool IsUnpairedPeerPath(PathString path) =>
         path == "/peer/v1/hello" || path == "/peer/v1/pairings" ||

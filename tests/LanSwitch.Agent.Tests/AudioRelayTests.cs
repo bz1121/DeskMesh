@@ -1,6 +1,9 @@
 using LanSwitch.Agent.Infrastructure;
 using LanSwitch.Agent.Services;
+using Microsoft.Extensions.Logging.Abstractions;
 using NAudio.Wave;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 namespace LanSwitch.Agent.Tests;
 
@@ -55,5 +58,35 @@ public sealed class AudioRelayTests
         Assert.Equal(100, AudioConfiguration.Normalize(defaults with { AudioVolume = 999 }).AudioVolume);
         Assert.Equal(0, AudioConfiguration.Normalize(defaults with { AudioVolume = -5 }).AudioVolume);
         Assert.Throws<ArgumentOutOfRangeException>(() => AudioConfiguration.ValidateVolume(101));
+    }
+
+    [Fact]
+    public void SharedHostedAudioServiceCanBeDisposedMoreThanOnceDuringHostShutdown()
+    {
+        using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var request = new CertificateRequest("CN=DeskMesh Audio Dispose Test", key, HashAlgorithmName.SHA256);
+        using var certificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-1),
+            DateTimeOffset.UtcNow.AddMinutes(5));
+        var identity = new DeviceIdentity("local", certificate, DeviceIdentityStore.Fingerprint(certificate));
+        var options = new AgentOptions(
+            5616,
+            45832,
+            Path.Combine(Path.GetTempPath(), $"deskmesh-audio-dispose-{Guid.NewGuid():N}"),
+            "audio-dispose-test",
+            Headless: true,
+            AllowMultipleInstances: true);
+        var settings = new SettingsStore(options, identity);
+        var state = new AppState(identity, settings, options);
+        var service = new AudioRelayService(
+            identity,
+            settings,
+            state,
+            new InputCoordinator(),
+            new PeerDirectory(settings),
+            NullLogger<AudioRelayService>.Instance);
+
+        service.Dispose();
+        service.Dispose();
     }
 }

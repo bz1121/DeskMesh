@@ -28,6 +28,7 @@ public sealed class AudioRelayService : BackgroundService
     private AudioSettingsView _status;
     private int _activeCapture;
     private int _activePlayback;
+    private int _disposed;
 
     public AudioRelayService(
         DeviceIdentity identity,
@@ -326,9 +327,11 @@ public sealed class AudioRelayService : BackgroundService
 
     private void OnSettingsChanged(AgentSettings settings)
     {
+        if (Volatile.Read(ref _disposed) != 0) return;
         var changed = false;
         lock (_configurationGate)
         {
+            if (Volatile.Read(ref _disposed) != 0) return;
             if (_lastEnabled == settings.AudioForwardingEnabled && _lastVolume == settings.AudioVolume) return;
             _lastEnabled = settings.AudioForwardingEnabled;
             _lastVolume = settings.AudioVolume;
@@ -381,6 +384,10 @@ public sealed class AudioRelayService : BackgroundService
 
     public override void Dispose()
     {
+        // The same instance is intentionally registered both as a concrete singleton
+        // and as an IHostedService alias. Microsoft DI owns both registrations and may
+        // dispose the shared instance twice while the host shuts down.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _settings.Changed -= OnSettingsChanged;
         lock (_configurationGate)
         {

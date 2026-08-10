@@ -37,6 +37,29 @@ public sealed class LocalAdminServiceTests
     }
 
     [Fact]
+    public async Task AdministratorPasswordAcceptsSixCharactersAndRejectsFive()
+    {
+        using var tooShortContext = TestContext.Create();
+        var tooShortBootstrap = tooShortContext.Service.IssueBootstrapToken();
+        var tooShort = await Assert.ThrowsAsync<ArgumentException>(() =>
+            tooShortContext.Service.SetupAsync("admin", "12345", tooShortBootstrap.Token));
+        Assert.Contains("6-256", tooShort.Message, StringComparison.Ordinal);
+
+        using var minimumContext = TestContext.Create();
+        var minimumBootstrap = minimumContext.Service.IssueBootstrapToken();
+        var setup = await minimumContext.Service.SetupAsync("admin", "123456", minimumBootstrap.Token);
+
+        Assert.True(setup.Succeeded);
+        Assert.True((await minimumContext.Service.LoginAsync("admin", "123456")).Succeeded);
+
+        var authentication = minimumContext.Service.Authenticate(setup.Token);
+        var changed = await minimumContext.Service.ChangePasswordAsync(
+            authentication.SessionId!, "123456", "654321");
+        Assert.True(changed.Succeeded);
+        Assert.True((await minimumContext.Service.LoginAsync("admin", "654321")).Succeeded);
+    }
+
+    [Fact]
     public async Task BootstrapExpiresAndCanOnlyBeReissuedByTheTrayService()
     {
         using var context = TestContext.Create();
@@ -378,6 +401,36 @@ public sealed class LocalAdminServiceTests
         Assert.Equal(StatusCodes.Status403Forbidden, ApiEndpoints.UnsafeApiOriginRejectionStatus(wrongScheme));
         Assert.Null(ApiEndpoints.UnsafeApiOriginRejectionStatus(exact));
         Assert.Null(ApiEndpoints.UnsafeApiOriginRejectionStatus(safeRead));
+    }
+
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/assets/lanswitch-console.js")]
+    [InlineData("/assets/lanswitch-console.css")]
+    [InlineData("/devices")]
+    public void LocalConsoleResourcesCannotReuseAnOlderCachedBundle(string path)
+    {
+        var context = new DefaultHttpContext();
+
+        ApiEndpoints.ApplyLocalCachePolicy(context.Response, new PathString(path));
+
+        Assert.Equal("no-cache, no-store, must-revalidate", context.Response.Headers.CacheControl);
+        Assert.Equal("no-cache", context.Response.Headers.Pragma);
+        Assert.Equal("0", context.Response.Headers.Expires);
+    }
+
+    [Theory]
+    [InlineData("/api/v1/auth/status")]
+    [InlineData("/api/v1/status")]
+    public void LocalApiResponsesRemainNonCacheable(string path)
+    {
+        var context = new DefaultHttpContext();
+
+        ApiEndpoints.ApplyLocalCachePolicy(context.Response, new PathString(path));
+
+        Assert.Equal("no-store", context.Response.Headers.CacheControl);
+        Assert.False(context.Response.Headers.ContainsKey("Pragma"));
+        Assert.False(context.Response.Headers.ContainsKey("Expires"));
     }
 
     private static HttpRequest LocalRequest(string method, string path, string? origin)

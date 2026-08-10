@@ -4,6 +4,15 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 
 ## [Unreleased]
 
+### Changed
+
+- 本机管理员密码的最小长度调整为 6 个字符；仍建议使用更长、仅用于 DeskMesh 的密码，登录失败锁定策略保持不变。
+
+### Fixed
+
+- 本地控制台 HTML、JavaScript 与 CSS 现在禁止复用旧缓存，避免升级后出现“新 Agent + 旧网页”并把管理员首次设置误报为 Agent 离线。
+- 修复退出时音频后台服务被依赖注入容器重复释放，导致弹出 `The CancellationTokenSource has been disposed.` 的问题。
+
 ## [0.1.0-alpha.3] - 2026-08-10
 
 ### Added

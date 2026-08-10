@@ -14,6 +14,7 @@ import {
   ApiError,
   apiRequest,
   AUTH_REQUIRED_EVENT,
+  MINIMUM_ADMIN_PASSWORD_LENGTH,
   type AuthStatus,
   jsonRequest,
   resetSessionToken,
@@ -273,8 +274,8 @@ function SetupView({
       setError("请输入管理员名称。");
       return;
     }
-    if (password.length < 12) {
-      setError("管理员密码至少需要 12 个字符。");
+    if (password.length < MINIMUM_ADMIN_PASSWORD_LENGTH) {
+      setError(`管理员密码至少需要 ${MINIMUM_ADMIN_PASSWORD_LENGTH} 个字符。`);
       return;
     }
     if (password !== confirmation) {
@@ -343,7 +344,7 @@ function SetupView({
           value={password}
           show={showPassword}
           autoComplete="new-password"
-          hint="至少 12 个字符；密码只在本机验证。"
+          hint={`至少 ${MINIMUM_ADMIN_PASSWORD_LENGTH} 个字符；建议使用更长密码，只在本机验证。`}
           onChange={setPassword}
           onToggle={() => setShowPassword((value) => !value)}
         />
@@ -530,7 +531,7 @@ function PasswordField({
         <input
           type={show ? "text" : "password"}
           value={value}
-          minLength={autoComplete === "new-password" ? 12 : undefined}
+          minLength={autoComplete === "new-password" ? MINIMUM_ADMIN_PASSWORD_LENGTH : undefined}
           maxLength={256}
           autoComplete={autoComplete}
           required

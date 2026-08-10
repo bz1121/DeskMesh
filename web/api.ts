@@ -1,5 +1,7 @@
 export type ConnectionState = "checking" | "online" | "offline";
 
+export const MINIMUM_ADMIN_PASSWORD_LENGTH = 6;
+
 export type AgentStatus = {
   deviceId?: string;
   deviceName?: string;

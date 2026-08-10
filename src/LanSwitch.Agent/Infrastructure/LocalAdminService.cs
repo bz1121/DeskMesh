@@ -12,7 +12,7 @@ internal sealed class LocalAdminService
     internal const int MaximumKdfIterations = 2_000_000;
     internal const int MinimumUsernameLength = 3;
     internal const int MaximumUsernameLength = 32;
-    internal const int MinimumPasswordLength = 12;
+    internal const int MinimumPasswordLength = 6;
     internal const int MaximumPasswordLength = 256;
     internal const int MaximumFailures = 5;
     internal const int MaximumActiveSessions = 16;
