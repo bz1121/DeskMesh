@@ -3269,3 +3269,455 @@ section[id] {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Local administrator access */
+.auth-shell {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  padding: clamp(22px, 5vw, 64px);
+  padding-top: max(clamp(22px, 5vw, 64px), env(safe-area-inset-top));
+  padding-right: max(clamp(22px, 5vw, 64px), env(safe-area-inset-right));
+  padding-bottom: max(clamp(22px, 5vw, 64px), env(safe-area-inset-bottom));
+  padding-left: max(clamp(22px, 5vw, 64px), env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at 14% 12%, rgba(29, 175, 161, 0.12), transparent 32%),
+    linear-gradient(145deg, var(--surface-deeper), var(--surface-deep) 46%, #183b3d);
+}
+
+.auth-card {
+  width: min(100%, 520px);
+  padding: clamp(26px, 5vw, 42px);
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 28px 80px rgba(3, 24, 27, 0.3);
+}
+
+.auth-brand {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+.auth-brand img {
+  display: block;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px 14px 5px 14px;
+}
+
+.auth-brand div {
+  display: grid;
+  gap: 2px;
+}
+
+.auth-brand strong {
+  color: var(--surface-deep);
+  font-size: 19px;
+  letter-spacing: -0.025em;
+}
+
+.auth-brand span {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.auth-copy {
+  margin: 30px 0 24px;
+}
+
+.auth-copy h1 {
+  margin: 7px 0 10px;
+  color: var(--surface-deep);
+  font-size: clamp(27px, 7vw, 36px);
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+}
+
+.auth-copy > p:last-child {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.auth-form {
+  display: grid;
+  gap: 17px;
+}
+
+.auth-form .field-label,
+.admin-password-card .field-label {
+  color: #405352;
+  font-size: 13px;
+}
+
+.auth-form .field-label > small,
+.admin-password-card .field-label > small {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.auth-form .field-label input,
+.admin-password-card .field-label input {
+  min-height: 48px;
+  font-size: 14px;
+}
+
+.password-control {
+  position: relative;
+  display: block;
+}
+
+.password-control input {
+  padding-right: 72px;
+}
+
+.password-control button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  min-width: 58px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--surface-soft);
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.password-control button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.auth-error,
+.auth-lockout,
+.admin-success {
+  margin: 0;
+  padding: 12px 13px;
+  border-radius: 9px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.auth-error {
+  border: 1px solid #e9bbb5;
+  background: var(--danger-soft);
+  color: #8d332a;
+}
+
+.auth-lockout {
+  border: 1px solid #e8cc95;
+  background: var(--warning-soft);
+  color: #72470a;
+}
+
+.admin-success {
+  border: 1px solid #b8dcd3;
+  background: #eef8f4;
+  color: var(--accent-strong);
+}
+
+.auth-attempt-note {
+  margin: -5px 0 0;
+  color: var(--warning);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.auth-boundary {
+  margin: 24px 0 0;
+  padding-top: 19px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.auth-message {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin-bottom: 17px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.auth-message.danger {
+  border-color: #e9bbb5;
+  background: var(--danger-soft);
+  color: #8d332a;
+}
+
+.auth-spinner {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(12, 137, 126, 0.22);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: auth-spin 750ms linear infinite;
+}
+
+@keyframes auth-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.admin-session-control {
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 5px 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.admin-session-control > a {
+  display: grid;
+  min-width: 0;
+  border-radius: 7px;
+  text-decoration: none;
+}
+
+.admin-session-control small {
+  color: var(--ink-soft);
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+.admin-session-control strong {
+  max-width: 130px;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-session-control button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-session-control button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-card {
+  min-width: 0;
+  padding: clamp(22px, 3vw, 30px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-card-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.admin-card-heading > div {
+  min-width: 0;
+}
+
+.admin-card-heading span:not(.admin-role) {
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+}
+
+.admin-card-heading h3 {
+  margin: 6px 0 0;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.admin-role {
+  flex: 0 0 auto;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.admin-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 22px 0;
+}
+
+.admin-facts div {
+  min-width: 0;
+  padding: 13px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.admin-facts dt {
+  margin-bottom: 5px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.admin-facts dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.admin-session-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+
+.admin-card-note,
+.admin-card-copy {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.admin-card-note {
+  margin: 16px 0 0;
+}
+
+.admin-card-copy {
+  margin: 16px 0 18px;
+}
+
+.admin-password-card {
+  display: grid;
+  align-content: start;
+  gap: 15px;
+}
+
+.admin-password-card .admin-card-copy {
+  margin: 0;
+}
+
+.admin-password-card > .primary-button {
+  justify-self: start;
+  margin-top: 3px;
+}
+
+.admin-boundary-card {
+  grid-column: 1 / -1;
+  background:
+    linear-gradient(135deg, rgba(216, 239, 234, 0.58), transparent 55%),
+    var(--surface);
+}
+
+.admin-boundary-card ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 28px;
+  margin: 22px 0 16px;
+  padding-left: 20px;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.admin-boundary-card li::marker {
+  color: var(--accent);
+}
+
+.admin-boundary-card > p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+@media (max-width: 980px) {
+  .admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-boundary-card {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 760px) {
+  .admin-session-control > a {
+    display: none;
+  }
+
+  .admin-session-control {
+    padding-left: 5px;
+  }
+}
+
+@media (max-width: 560px) {
+  .auth-shell {
+    align-items: start;
+    padding: 14px;
+    padding-top: max(14px, env(safe-area-inset-top));
+    padding-right: max(14px, env(safe-area-inset-right));
+    padding-bottom: max(14px, env(safe-area-inset-bottom));
+    padding-left: max(14px, env(safe-area-inset-left));
+  }
+
+  .auth-card {
+    padding: 24px 20px;
+    border-radius: 18px;
+  }
+
+  .admin-session-control {
+    display: none;
+  }
+
+  .admin-facts,
+  .admin-boundary-card ul {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-session-actions,
+  .admin-password-card > .primary-button {
+    width: 100%;
+  }
+
+  .admin-session-actions > button,
+  .admin-password-card > .primary-button {
+    width: 100%;
+  }
+}

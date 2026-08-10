@@ -124,6 +124,36 @@ export type SecurityStatus = {
   pending?: PairingRequest[];
 };
 
+export type AuthStatus = {
+  configured: boolean;
+  authenticated: boolean;
+  state?:
+    | "setup-required"
+    | "recovery-required"
+    | "login-required"
+    | "authenticated"
+    | string;
+  recoveryRequired?: boolean;
+  username?: string | null;
+  role?: string | null;
+  sessionExpiresAt?: string | null;
+  idleExpiresAt?: string | null;
+  activeSessionCount?: number | null;
+  failedAttempts?: number | null;
+  lockedUntil?: string | null;
+  lastLoginAt?: string | null;
+};
+
+export type SessionEnvelope = {
+  token: string | null;
+  auth?: AuthStatus;
+};
+
+export type SessionRevokeResult = {
+  revoked?: number;
+  auth: AuthStatus;
+};
+
 export type HotkeySettings = {
   switchToLocal: string;
   toggleRemote: string;
@@ -210,6 +240,25 @@ export class ApiError extends Error {
   }
 }
 
+export const AUTH_REQUIRED_EVENT = "deskmesh:auth-required";
+
+export type AuthRequiredEventDetail = {
+  status: 401 | 423 | 428;
+};
+
+export type ApiRequestOptions = {
+  notifyAuthFailure?: boolean;
+  skipSessionToken?: boolean;
+};
+
+function notifyAuthRequired(status: 401 | 423 | 428) {
+  window.dispatchEvent(
+    new CustomEvent<AuthRequiredEventDetail>(AUTH_REQUIRED_EVENT, {
+      detail: { status },
+    }),
+  );
+}
+
 let sessionTokenPromise: Promise<string> | null = null;
 
 export function getSessionToken(): Promise<string> {
@@ -223,11 +272,31 @@ export function getSessionToken(): Promise<string> {
   })
     .then(async (response) => {
       if (!response.ok) {
-        throw new ApiError(`无法建立本机安全会话（HTTP ${response.status}）`);
+        if (
+          response.status === 401 ||
+          response.status === 423 ||
+          response.status === 428
+        ) {
+          sessionTokenPromise = null;
+          notifyAuthRequired(response.status);
+        }
+        throw new ApiError(
+          `无法建立本机安全会话（HTTP ${response.status}）`,
+          response.status,
+        );
       }
-      const body = (await response.json()) as { token?: unknown };
+      const body = (await response.json()) as Partial<SessionEnvelope>;
       if (typeof body.token !== "string" || !body.token) {
-        throw new ApiError("本机 Agent 返回了无效的安全会话");
+        const status = body.auth?.recoveryRequired ||
+          body.auth?.state === "recovery-required"
+          ? 423
+          : body.auth?.configured === false ||
+              body.auth?.state === "setup-required"
+            ? 428
+            : 401;
+        sessionTokenPromise = null;
+        notifyAuthRequired(status);
+        throw new ApiError("本机控制台会话已失效，请重新登录。", status);
       }
       return body.token;
     })
@@ -248,6 +317,7 @@ export async function apiRequest<T>(
   path: string,
   init: RequestInit = {},
   timeoutMs = 6500,
+  options: ApiRequestOptions = {},
 ): Promise<T> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -256,7 +326,11 @@ export async function apiRequest<T>(
   const method = (init.method ?? "GET").toUpperCase();
 
   try {
-    if (method !== "GET" && method !== "HEAD") {
+    if (
+      method !== "GET" &&
+      method !== "HEAD" &&
+      options.skipSessionToken !== true
+    ) {
       headers.set("X-LanSwitch-Client", await getSessionToken());
     }
     const response = await fetch(path, {
@@ -273,8 +347,21 @@ export async function apiRequest<T>(
       : await response.text().catch(() => "");
 
     if (!response.ok) {
-      if (response.status === 403 && method !== "GET" && method !== "HEAD") {
+      if (
+        response.status === 403 &&
+        method !== "GET" &&
+        method !== "HEAD"
+      ) {
         resetSessionToken();
+      }
+      if (
+        options.notifyAuthFailure !== false &&
+        (response.status === 401 ||
+          response.status === 423 ||
+          response.status === 428)
+      ) {
+        resetSessionToken();
+        notifyAuthRequired(response.status);
       }
       const detail =
         body && typeof body === "object"

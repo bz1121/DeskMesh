@@ -47,7 +47,8 @@ public static class RemoteDesktopEndpoints
     private static async Task HandleBrowserStreamAsync(HttpContext context)
     {
         var state = context.RequestServices.GetRequiredService<AppState>();
-        if (!IsWebSocketRequest(context, state.CsrfToken) ||
+        var admin = context.RequestServices.GetRequiredService<LocalAdminService>();
+        if (!IsWebSocketRequest(context, admin) ||
             string.IsNullOrWhiteSpace(context.Request.Query["targetDeviceId"]) ||
             !int.TryParse(context.Request.Query["displayIndex"], out var displayIndex) || displayIndex < 0 ||
             !long.TryParse(context.Request.Query["generation"], out var generation) || generation < 0)
@@ -116,10 +117,12 @@ public static class RemoteDesktopEndpoints
         }
     }
 
-    private static bool IsWebSocketRequest(HttpContext context, string expectedToken) =>
+    private static bool IsWebSocketRequest(HttpContext context, LocalAdminService admin) =>
         context.WebSockets.IsWebSocketRequest &&
         context.WebSockets.WebSocketRequestedProtocols.Contains(RemoteDesktopProtocol.SubProtocol) &&
-        string.Equals(context.Request.Query["token"], expectedToken, StringComparison.Ordinal);
+        context.Items.TryGetValue(LocalAdminService.ContextItemName, out var value) &&
+        value is AdminAuthenticationResult { IsAuthenticated: true } authentication &&
+        admin.MatchesCsrf(authentication, context.Request.Query["token"]);
 
     private static RuntimePeer RequireAuthorizedPeer(HttpContext context, PeerDirectory peers)
     {

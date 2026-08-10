@@ -37,6 +37,8 @@ import RemoteDesktopPanel, {
   type RemoteDesktopPanelHandle,
   type SeamlessSessionSnapshot,
 } from "./RemoteDesktopPanel";
+import AdminPage from "./AdminPage";
+import { useAdminAuth } from "./AuthGate";
 
 const DEFAULT_POLICY: ClipboardPolicy = {
   enabled: false,
@@ -77,6 +79,7 @@ type ConsolePage =
   | "files"
   | "display"
   | "security"
+  | "admin"
   | "diagnostics";
 
 type ConsolePageMeta = {
@@ -139,10 +142,18 @@ const CONSOLE_PAGES: readonly ConsolePageMeta[] = [
   },
   {
     id: "security",
-    label: "安全与配对",
+    label: "配对与信任",
     eyebrow: "控制中心 / 信任管理",
-    title: "安全与配对",
-    description: "管理可信设备、配对请求、证书指纹和全局快捷键。",
+    title: "配对与信任",
+    description: "建立设备信任、核对配对请求和查看证书指纹。",
+    group: "系统",
+  },
+  {
+    id: "admin",
+    label: "管理员设置",
+    eyebrow: "控制中心 / 本机管理",
+    title: "管理员设置",
+    description: "管理本机登录、管理员会话和凭据安全。",
     group: "系统",
   },
   {
@@ -172,6 +183,7 @@ function pageFromHash(hash: string): ConsolePage | null {
 }
 
 export default function ControlConsole() {
+  const { auth, endingSession, lock } = useAdminAuth();
   const [connection, setConnection] = useState<ConnectionState>("checking");
   const [activePage, setActivePage] = useState<ConsolePage>(() => {
     if (typeof window === "undefined") return "overview";
@@ -291,6 +303,15 @@ export default function ControlConsole() {
   useEffect(() => {
     document.title = `${activePageMeta.title} · DeskMesh`;
   }, [activePageMeta.title]);
+
+  useEffect(
+    () => () => {
+      fileUploadCancelRequested.current = true;
+      const request = fileUploadRequest.current;
+      if (request && request.readyState !== XMLHttpRequest.DONE) request.abort();
+    },
+    [],
+  );
 
   const refreshSnapshot = useCallback(async (quiet = false) => {
     if (refreshing.current) return;
@@ -1209,6 +1230,37 @@ export default function ControlConsole() {
     );
   }
 
+  async function prepareForConsoleLock() {
+    if (seamlessSessionActive) {
+      remoteDesktopRef.current?.stopSeamless("本机控制台已锁定。");
+    }
+    if (fileUploadBusy) cancelLocalFileUpload();
+    if (status?.focus?.isRemote) {
+      try {
+        await apiRequest<WriteResult>(
+          "/api/v1/focus/release",
+          jsonRequest("POST"),
+        );
+      } catch {
+        // Locking the console takes priority; the logout endpoint also requests
+        // a safe local-focus release before invalidating the session.
+      }
+    }
+  }
+
+  async function handleConsoleLock() {
+    setNotice(null);
+    try {
+      await prepareForConsoleLock();
+      await lock();
+    } catch (error) {
+      setNotice({
+        tone: "danger",
+        message: getErrorMessage(error),
+      });
+    }
+  }
+
   return (
     <div className="app-shell">
       <a
@@ -1279,6 +1331,26 @@ export default function ControlConsole() {
             >
               <span className={`status-dot ${connection}`} aria-hidden="true" />
               {connectionLabel}
+            </div>
+            <div className="admin-session-control" aria-label="当前管理员会话">
+              <a
+                href="#/admin"
+                aria-label={`打开管理员设置，当前管理员 ${auth.username || "本机管理员"}`}
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigateToPage("admin");
+                }}
+              >
+                <small>管理员</small>
+                <strong>{auth.username || "本机管理员"}</strong>
+              </a>
+              <button
+                type="button"
+                disabled={endingSession}
+                onClick={() => void handleConsoleLock()}
+              >
+                {endingSession ? "锁定中…" : "锁定"}
+              </button>
             </div>
             <button
               className="icon-button"
@@ -2551,7 +2623,7 @@ export default function ControlConsole() {
         >
           <SectionHeader
             id="security-title"
-            eyebrow="安全与配对"
+            eyebrow="配对与信任"
             title="信任只留在你的局域网"
             description="新设备必须使用一次性配对码建立信任；所有状态均来自本机 Agent。"
           />
@@ -2836,6 +2908,13 @@ export default function ControlConsole() {
             </div>
           ) : null}
         </section>
+
+        <AdminPage
+          active={activePage === "admin"}
+          connection={connection}
+          onNotice={setNotice}
+          onBeforeLock={prepareForConsoleLock}
+        />
 
         <section
           id="diagnostics"

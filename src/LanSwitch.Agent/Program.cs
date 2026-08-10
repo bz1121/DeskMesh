@@ -88,6 +88,7 @@ internal static class Program
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton(identity);
         builder.Services.AddSingleton<SettingsStore>();
+        builder.Services.AddSingleton<LocalAdminService>();
         builder.Services.AddSingleton<AppState>();
         builder.Services.AddSingleton<PeerDirectory>();
         builder.Services.AddSingleton<PairingService>();
@@ -122,6 +123,18 @@ internal static class Program
 
         using var app = builder.Build();
         _ = app.Services.GetRequiredService<BrowserUploadStager>();
+        var localAdmin = app.Services.GetRequiredService<LocalAdminService>();
+        var focusCoordinator = app.Services.GetRequiredService<FocusCoordinator>();
+        var appState = app.Services.GetRequiredService<AppState>();
+        var desktopSessions = app.Services.GetRequiredService<RemoteDesktopOutgoingSessionRegistry>();
+        localAdmin.LastSessionEnded += () =>
+        {
+            var currentFocus = appState.Focus;
+            if (currentFocus.IsRemote ||
+                !string.Equals(currentFocus.Phase, "local", StringComparison.Ordinal) ||
+                desktopSessions.HasActiveSessions)
+                focusCoordinator.EmergencyReleaseNow("管理员会话已结束，已恢复本机控制。");
+        };
         ApiEndpoints.ConfigurePipeline(app);
         HotkeyEndpoints.Map(app);
         PhysicalFollowEndpoints.Map(app);

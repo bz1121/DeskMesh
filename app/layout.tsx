@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from "react";
+import AuthGate from "./AuthGate";
 
 export const appMetadata = {
   title: "DeskMesh · 桌联控制中心",
@@ -6,5 +7,5 @@ export const appMetadata = {
 } as const;
 
 export default function RootLayout({ children }: PropsWithChildren) {
-  return children;
+  return <AuthGate>{children}</AuthGate>;
 }

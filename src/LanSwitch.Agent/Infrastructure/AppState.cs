@@ -34,7 +34,6 @@ public sealed class AppState
             DisplayCompatibilitySettings.IsAutomaticReady(config), "尚未探测 DDC/CI");
     }
 
-    public string CsrfToken { get; } = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(24));
     public EventSubscription Subscribe()
     {
         var id = Guid.NewGuid();

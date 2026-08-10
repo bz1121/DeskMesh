@@ -12,6 +12,10 @@ DeskMesh is a local-network desktop companion for Windows 10 and Windows 11 x64.
 
 DeskMesh has no cloud dependency. Its local control panel listens only on `127.0.0.1:5616`. Peer traffic uses `45832/TCP` with mutual TLS, ECDSA device identities, and pinned certificate fingerprints; automatic discovery uses `45830/UDP`.
 
+Each PC has one local DeskMesh administrator account that unlocks its own web control panel. First-time setup must be opened from that PC's tray icon so the Agent can issue a short-lived, one-time setup link; browsing directly to the address cannot claim an unconfigured console. This application login is local to one PC and is separate from peer-device pairing and mutual TLS.
+
+When upgrading from a release that did not have administrator login, the existing device identity, trusted peers, display mappings, and other settings remain in place. The upgraded console starts in the unconfigured-administrator state; open it from the tray once to create the local administrator. Re-pairing and display recalibration are not required.
+
 ## Features
 
 - Two explicit switching modes: **Direct Signal** coordinates DDC/CI and global input for native image quality, while **Seamless Remote** keeps the monitor input unchanged and opens a full-viewport encrypted remote desktop session without the signal-switch blackout.
@@ -23,7 +27,7 @@ DeskMesh has no cloud dependency. Its local control panel listens only on `127.0
 - DDC/CI VCP `0x60` two-sample probing, HDMI1/DisplayPort mappings, switch verification, and physical-input-following when both agents can read the monitor state.
 - A restricted write-only DDC compatibility mode that permits only HDMI1 `0x11` and DisplayPort `0x0F`; every mapping must be tested individually and confirmed visually.
 - Six-digit one-time pairing codes, human-verifiable security phrases, mutual TLS, epoch and sequence replay protection, multicast/directed-broadcast discovery, and manual IP entry.
-- A responsive Simplified Chinese control panel and tray menu, plus optional startup after the current user signs in.
+- A responsive Simplified Chinese control panel protected by a local administrator login, a tray-only first-run and recovery path, and optional startup after the current Windows user signs in.
 
 For privacy, **automatic clipboard synchronization, audio forwarding, and remote desktop access are disabled on new installations**. Pair only with trusted devices and enable each capability locally as needed.
 
@@ -43,7 +47,7 @@ Compare the result with `SHA256SUMS.txt` on the release page before extracting t
 
 1. Extract the release ZIP on both Windows PCs and run `DeskMesh.exe` on each one.
 2. If Windows Firewall prompts you, allow access only on **Private networks**.
-3. Double-click the tray icon or open <http://127.0.0.1:5616/>.
+3. On each PC, open the control panel from the DeskMesh tray icon. The first launch uses a one-time setup link to create that PC's local administrator; later visits require that administrator login.
 4. On the target PC, open **Security and pairing** and generate a fresh pairing code. On the other PC, enter the target IP address and that code.
 5. Compare the security phrase and certificate fingerprint on both PCs, then approve the request on the target PC.
 6. Enable clipboard synchronization, audio forwarding, or remote desktop access only where needed.
@@ -55,6 +59,10 @@ The default data directory is `%LOCALAPPDATA%\DeskMesh`. For compatibility with 
 ## Important limitations
 
 DeskMesh forwards input in software; it does not physically reconnect USB devices to another PC. Windows `SendInput` cannot reliably control the UAC secure desktop, the lock screen, pre-login interfaces, `Ctrl+Alt+Del`, BIOS/UEFI, elevated administrator windows, or some anti-cheat-protected games. Use a hardware KVM for those scenarios.
+
+The DeskMesh administrator is an application account, not a Windows administrator. Unlocking the control panel does not elevate DeskMesh, bypass UAC, or extend `SendInput` across Windows security boundaries. It also cannot defend against malicious code already running as the same Windows user, a compromised browser profile, or a Windows administrator.
+
+The web login protects the loopback control panel; peer authentication is a different boundary. Paired Agents still authenticate over the LAN with mutual TLS and pinned device certificates. A web session never replaces peer pairing, and pairing a device never signs that device into the local administrator panel. If the administrator password is forgotten, use the tray recovery command on that PC. Recovery ends local web sessions and resets only the control-panel credential; it does not delete the device identity, trusted peer records, or display mappings.
 
 DDC/CI reliability depends on the monitor, cables, graphics driver, and active input. A monitor may stop exposing its DDC channel to the previous input after switching. Always keep the monitor's physical controls and the emergency shortcut available as fallback options.
 

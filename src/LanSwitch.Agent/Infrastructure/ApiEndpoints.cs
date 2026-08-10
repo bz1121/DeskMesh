@@ -50,6 +50,7 @@ public static class ApiEndpoints
             }
             if (context.Connection.LocalPort == options.WebPort)
             {
+                ApplyLocalSecurityHeaders(context.Response, path.StartsWithSegments("/api/v1"));
                 if (!IPAddress.IsLoopback(context.Connection.RemoteIpAddress ?? IPAddress.None) ||
                     !IsLoopbackHost(context.Request.Host.Host))
                 {
@@ -61,17 +62,89 @@ public static class ApiEndpoints
                     context.Response.StatusCode = StatusCodes.Status403Forbidden;
                     return;
                 }
-                if (path.StartsWithSegments("/api") && IsUnsafe(context.Request.Method) &&
+                if (path.StartsWithSegments("/api") && !path.StartsWithSegments("/api/v1") &&
+                    IsUnsafe(context.Request.Method) &&
                     !path.StartsWithSegments("/api/v1/session"))
                 {
-                    var state = context.RequestServices.GetRequiredService<AppState>();
-                    if (!HasValidLocalOrigin(context.Request) ||
-                        !string.Equals(context.Request.Headers["X-LanSwitch-Client"], state.CsrfToken, StringComparison.Ordinal))
+                    if (!HasExactLocalOrigin(context.Request))
                     {
                         context.Response.StatusCode = StatusCodes.Status403Forbidden;
                         await context.Response.WriteAsJsonAsync(new { error = "请求来源或本地会话令牌无效，请刷新页面。" });
                         return;
                     }
+                }
+                if (UnsafeApiOriginRejectionStatus(context.Request) is { } originRejectionStatus)
+                {
+                    context.Response.StatusCode = originRejectionStatus;
+                    await context.Response.WriteAsJsonAsync(new
+                    {
+                        error = "An exact same-origin browser request is required.",
+                        code = "invalid-origin"
+                    });
+                    return;
+                }
+                if (path.StartsWithSegments("/api/v1") && RequiresAdminAuthorization(path))
+                {
+                    var admin = context.RequestServices.GetRequiredService<LocalAdminService>();
+                    var unsafeRequest = IsUnsafe(context.Request.Method);
+                    var cookieToken = context.Request.Cookies[admin.CookieName];
+                    var authentication = admin.Authenticate(
+                        cookieToken,
+                        allowRotation: !unsafeRequest,
+                        extendIdle: false);
+                    if (authentication.RecoveryRequired)
+                    {
+                        context.Response.StatusCode = StatusCodes.Status423Locked;
+                        await context.Response.WriteAsJsonAsync(new
+                        {
+                            error = "Administrator credential recovery is required.",
+                            code = "credential-recovery-required"
+                        });
+                        return;
+                    }
+                    if (!authentication.IsConfigured)
+                    {
+                        context.Response.StatusCode = StatusCodes.Status428PreconditionRequired;
+                        await context.Response.WriteAsJsonAsync(new
+                        {
+                            error = "Administrator setup is required.",
+                            code = "administrator-setup-required"
+                        });
+                        return;
+                    }
+                    if (!authentication.IsAuthenticated)
+                    {
+                        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                        await context.Response.WriteAsJsonAsync(new
+                        {
+                            error = "Administrator login is required.",
+                            code = "administrator-login-required"
+                        });
+                        return;
+                    }
+                    if (unsafeRequest &&
+                        !admin.MatchesCsrf(authentication, context.Request.Headers["X-LanSwitch-Client"]))
+                    {
+                        context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                        await context.Response.WriteAsJsonAsync(new
+                        {
+                            error = "The administrator session CSRF token is invalid.",
+                            code = "invalid-session-csrf"
+                        });
+                        return;
+                    }
+                    if (unsafeRequest)
+                    {
+                        authentication = admin.Authenticate(cookieToken, allowRotation: true, extendIdle: true);
+                        if (!authentication.IsAuthenticated)
+                        {
+                            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                            return;
+                        }
+                    }
+                    context.Items[LocalAdminService.ContextItemName] = authentication;
+                    if (authentication.ReplacementToken is not null && authentication.ExpiresAt is { } expiresAt)
+                        admin.AppendSessionCookie(context.Response, authentication.ReplacementToken, expiresAt);
                 }
                 if (path.StartsWithSegments("/peer"))
                 {
@@ -102,6 +175,23 @@ public static class ApiEndpoints
             }
             await next();
         });
+        app.Use(async (context, next) =>
+        {
+            if (context.Items.TryGetValue(LocalAdminService.ContextItemName, out var value) &&
+                value is AdminAuthenticationResult { IsAuthenticated: true } authentication &&
+                !IsSessionRevocationEndpoint(context.Request.Path))
+            {
+                var original = context.RequestAborted;
+                using var linked = CancellationTokenSource.CreateLinkedTokenSource(
+                    original,
+                    authentication.RevocationToken);
+                context.RequestAborted = linked.Token;
+                try { await next(); }
+                finally { context.RequestAborted = original; }
+                return;
+            }
+            await next();
+        });
         app.UseDefaultFiles();
         app.UseStaticFiles();
     }
@@ -115,7 +205,91 @@ public static class ApiEndpoints
 
     private static void MapLocalApi(WebApplication app)
     {
-        app.MapGet("/api/v1/session", (AppState state) => Results.Ok(new { token = state.CsrfToken }));
+        app.MapGet("/api/v1/session", (HttpContext context, LocalAdminService admin) =>
+        {
+            var authentication = GetAdminAuthentication(context, admin);
+            var auth = admin.GetStatus(authentication);
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(new
+            {
+                token = authentication.IsAuthenticated ? authentication.CsrfToken : null,
+                auth
+            });
+        });
+        app.MapGet("/api/v1/auth/status", (HttpContext context, LocalAdminService admin) =>
+        {
+            context.Response.Headers.CacheControl = "no-store";
+            return Results.Ok(GetAdminStatus(context, admin));
+        });
+        app.MapPost("/api/v1/auth/setup", async (
+            AdminSetupRequest request,
+            HttpContext context,
+            LocalAdminService admin,
+            CancellationToken cancellationToken) =>
+            AdminLoginResponse(
+                context,
+                admin,
+                await admin.SetupAsync(
+                    request.Username,
+                    request.Password,
+                    request.BootstrapToken,
+                    cancellationToken)));
+        app.MapPost("/api/v1/auth/login", async (
+            AdminLoginRequest request,
+            HttpContext context,
+            LocalAdminService admin,
+            CancellationToken cancellationToken) =>
+            AdminLoginResponse(
+                context,
+                admin,
+                await admin.LoginAsync(
+                    request.Username,
+                    request.Password,
+                    cancellationToken)));
+        app.MapPost("/api/v1/auth/logout", async (
+            HttpContext context,
+            LocalAdminService admin,
+            FocusCoordinator focus) =>
+        {
+            await focus.RequestUserReleaseAsync(
+                "管理员锁定控制台，已恢复本机控制。",
+                "administrator-logout",
+                CancellationToken.None);
+            admin.Logout(context.Request.Cookies[admin.CookieName]);
+            admin.DeleteSessionCookie(context.Response);
+            return Results.Ok(admin.GetStatus((string?)null));
+        });
+        app.MapPost("/api/v1/auth/touch", (HttpContext context, LocalAdminService admin) =>
+            Results.Ok(admin.GetStatus(RequireAdminSession(context))));
+        app.MapPost("/api/v1/auth/password", async (
+            AdminPasswordChangeRequest request,
+            HttpContext context,
+            LocalAdminService admin,
+            CancellationToken cancellationToken) =>
+        {
+            var current = RequireAdminSession(context);
+            return AdminLoginResponse(
+                context,
+                admin,
+                await admin.ChangePasswordAsync(
+                    current.SessionId!,
+                    request.CurrentPassword,
+                    request.NewPassword,
+                    cancellationToken));
+        });
+        app.MapPost("/api/v1/auth/sessions/revoke", (
+            AdminSessionRevokeRequest request,
+            HttpContext context,
+            LocalAdminService admin) =>
+        {
+            var current = RequireAdminSession(context);
+            var count = admin.RevokeOtherSessions(current.SessionId!, request.IncludeCurrent);
+            if (request.IncludeCurrent) admin.DeleteSessionCookie(context.Response);
+            var auth = request.IncludeCurrent
+                ? admin.GetStatus((string?)null)
+                : GetAdminStatus(context, admin);
+            return Results.Ok(new { revoked = count, auth });
+        });
         app.MapGet("/api/v1/status", (AppState state, PeerDirectory peers) => Results.Ok(state.GetStatus(peers.HasPairedPeers)));
         app.MapGet("/api/v1/diagnostics", (AppState state) => Results.Ok(state.Diagnostics));
         app.MapDelete("/api/v1/diagnostics", (AppState state) =>
@@ -383,9 +557,14 @@ public static class ApiEndpoints
             .WithMetadata(new RequestSizeLimitAttribute(AgentOptions.MaxFileBytes));
     }
 
-    private static async Task HandleEventWebSocketAsync(HttpContext context, AppState state)
+    private static async Task HandleEventWebSocketAsync(
+        HttpContext context,
+        AppState state,
+        LocalAdminService admin)
     {
-        if (!context.WebSockets.IsWebSocketRequest || !string.Equals(context.Request.Query["token"], state.CsrfToken, StringComparison.Ordinal))
+        var authentication = RequireAdminSession(context);
+        if (!context.WebSockets.IsWebSocketRequest ||
+            !admin.MatchesCsrf(authentication, context.Request.Query["token"]))
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;
             return;
@@ -459,6 +638,73 @@ public static class ApiEndpoints
     }
 
     private static bool IsUnsafe(string method) => method is not "GET" and not "HEAD" and not "OPTIONS";
+    internal static bool RequiresAdminAuthorization(PathString path) =>
+        path != "/api/v1/session" &&
+        path != "/api/v1/auth/status" &&
+        path != "/api/v1/auth/setup" &&
+        path != "/api/v1/auth/login";
+
+    private static bool IsSessionRevocationEndpoint(PathString path) =>
+        path == "/api/v1/auth/logout" ||
+        path == "/api/v1/auth/password" ||
+        path == "/api/v1/auth/sessions/revoke";
+
+    private static AdminStatusView GetAdminStatus(HttpContext context, LocalAdminService admin)
+        => admin.GetStatus(GetAdminAuthentication(context, admin));
+
+    private static AdminAuthenticationResult GetAdminAuthentication(HttpContext context, LocalAdminService admin)
+    {
+        var authentication = admin.Authenticate(context.Request.Cookies[admin.CookieName]);
+        if (authentication.ReplacementToken is not null && authentication.ExpiresAt is { } expiresAt)
+            admin.AppendSessionCookie(context.Response, authentication.ReplacementToken, expiresAt);
+        return authentication;
+    }
+
+    private static AdminAuthenticationResult RequireAdminSession(HttpContext context) =>
+        context.Items.TryGetValue(LocalAdminService.ContextItemName, out var value) &&
+        value is AdminAuthenticationResult { IsAuthenticated: true } authentication
+            ? authentication
+            : throw new UnauthorizedAccessException("Administrator login is required.");
+
+    private static IResult AdminLoginResponse(HttpContext context, LocalAdminService admin, AdminLoginResult result)
+    {
+        context.Response.Headers.CacheControl = "no-store";
+        if (result.Succeeded && result.Token is not null && result.ExpiresAt is { } expiresAt)
+        {
+            admin.AppendSessionCookie(context.Response, result.Token, expiresAt);
+            return Results.Ok(admin.GetStatus(result.Token));
+        }
+
+        return result.Status switch
+        {
+            "setup-required" => Results.Json(new { error = result.Error, code = result.Status }, statusCode: 428),
+            "recovery-required" => Results.Json(new { error = result.Error, code = "credential-recovery-required" }, statusCode: 423),
+            "invalid-bootstrap-token" => Results.Json(new { error = result.Error, code = result.Status }, statusCode: 403),
+            "conflict" => Results.Conflict(new { error = result.Error, code = result.Status }),
+            "locked" => LockedLoginResult(context, result),
+            _ => Results.Json(new
+            {
+                error = result.Error,
+                code = result.Status,
+                attemptsRemaining = result.AttemptsRemaining
+            }, statusCode: StatusCodes.Status401Unauthorized)
+        };
+    }
+
+    private static IResult LockedLoginResult(HttpContext context, AdminLoginResult result)
+    {
+        if (result.LockedUntil is { } lockedUntil)
+        {
+            var retryAfter = Math.Max(1, (int)Math.Ceiling((lockedUntil - DateTimeOffset.UtcNow).TotalSeconds));
+            context.Response.Headers.RetryAfter = retryAfter.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+        return Results.Json(new
+        {
+            error = result.Error,
+            code = result.Status,
+            lockedUntil = result.LockedUntil
+        }, statusCode: StatusCodes.Status429TooManyRequests);
+    }
     internal static ApiExceptionClassification ClassifyException(Exception exception, bool requestAborted) =>
         exception switch
         {
@@ -488,16 +734,42 @@ public static class ApiEndpoints
         if (!Uri.TryCreate(value, UriKind.Absolute, out var origin)) return false;
         var loopback = string.Equals(origin.Host, "localhost", StringComparison.OrdinalIgnoreCase) ||
             (IPAddress.TryParse(origin.Host, out var address) && IPAddress.IsLoopback(address));
-        return loopback && string.Equals(origin.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase);
+        return loopback &&
+            string.Equals(origin.Scheme, request.Scheme, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(origin.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase);
     }
+    internal static int? UnsafeApiOriginRejectionStatus(HttpRequest request) =>
+        request.Path.StartsWithSegments("/api/v1") &&
+        IsUnsafe(request.Method) &&
+        !HasExactLocalOrigin(request)
+            ? StatusCodes.Status403Forbidden
+            : null;
+
+    private static bool HasExactLocalOrigin(HttpRequest request) =>
+        !string.IsNullOrWhiteSpace(request.Headers.Origin) && HasValidLocalOrigin(request);
     private static bool IsLoopbackHost(string host) => string.Equals(host, "localhost", StringComparison.OrdinalIgnoreCase) ||
         (IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address));
+
+    private static void ApplyLocalSecurityHeaders(HttpResponse response, bool isApi)
+    {
+        response.Headers.ContentSecurityPolicy =
+            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; " +
+            "form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+            "img-src 'self' data: blob:; font-src 'self' data:; " +
+            "connect-src 'self'";
+        response.Headers.XFrameOptions = "DENY";
+        response.Headers.XContentTypeOptions = "nosniff";
+        response.Headers["Referrer-Policy"] = "no-referrer";
+        response.Headers["Permissions-Policy"] = "camera=(), geolocation=(), microphone=()";
+        if (isApi) response.Headers.CacheControl = "no-store";
+    }
     private static bool IsUnpairedPeerPath(PathString path) =>
         path == "/peer/v1/hello" || path == "/peer/v1/pairings" ||
         (path.StartsWithSegments("/peer/v1/pairings") && path.Value?.EndsWith("/status", StringComparison.Ordinal) == true);
 
     private static long RequestLimit(PathString path)
     {
+        if (path.StartsWithSegments("/api/v1/auth")) return 16 * 1024;
         if (path == "/api/v1/files/offers") return AgentOptions.MaxFileRequestBytes;
         if (path.StartsWithSegments("/peer/v1/files/offers") &&
             path.Value?.EndsWith("/content", StringComparison.Ordinal) == true) return AgentOptions.MaxFileBytes;
@@ -521,4 +793,8 @@ public sealed record ConfirmPairingRequest(bool Approve);
 public sealed record SwitchFocusRequest(string? TargetDeviceId);
 public sealed record FileDecisionRequest(bool Accept);
 public sealed record DisplayFollowRequest(bool Enabled);
+public sealed record AdminSetupRequest(string? Username, string Password, string BootstrapToken);
+public sealed record AdminLoginRequest(string Username, string Password);
+public sealed record AdminPasswordChangeRequest(string CurrentPassword, string NewPassword);
+public sealed record AdminSessionRevokeRequest(bool IncludeCurrent = false);
 internal sealed record ApiExceptionClassification(int StatusCode, string? Detail);

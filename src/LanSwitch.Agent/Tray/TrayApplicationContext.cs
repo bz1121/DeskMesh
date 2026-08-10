@@ -46,6 +46,7 @@ public sealed class TrayApplicationContext : ApplicationContext
             }
         };
         menu.Items.Add(startup);
+        menu.Items.Add("重置控制台登录…", null, async (_, _) => await RunAsync(ResetAdminLoginAsync));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("退出", null, async (_, _) => await ExitAsync());
 
@@ -87,12 +88,46 @@ public sealed class TrayApplicationContext : ApplicationContext
     {
         try
         {
-            Process.Start(new ProcessStartInfo($"http://127.0.0.1:{_options.WebPort}/") { UseShellExecute = true });
+            var admin = _services.GetRequiredService<LocalAdminService>();
+            var url = $"http://127.0.0.1:{_options.WebPort}/";
+            if (admin.CredentialState == AdminCredentialState.Missing)
+            {
+                var bootstrap = admin.IssueBootstrapToken();
+                url += $"#/setup?bootstrap={Uri.EscapeDataString(bootstrap.Token)}";
+            }
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
         }
         catch (Exception exception)
         {
             ShowOperationFailure("无法打开控制台", exception);
         }
+    }
+
+    private async Task ResetAdminLoginAsync()
+    {
+        var confirmation = MessageBox.Show(
+            "这会撤销全部网页管理员会话，并清除当前控制台管理员名称和密码。\n\n" +
+            "设备身份、已配对设备、显示器映射和其他 DeskMesh 设置都会保留。是否继续？",
+            "重置控制台登录",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning,
+            MessageBoxDefaultButton.Button2);
+        if (confirmation != DialogResult.Yes) return;
+
+        var focus = _services.GetRequiredService<FocusCoordinator>();
+        await focus.RequestUserReleaseAsync(
+            "重置控制台登录前，已恢复本机控制。",
+            "tray-admin-reset",
+            CancellationToken.None);
+
+        var admin = _services.GetRequiredService<LocalAdminService>();
+        await admin.ResetCredentialAsync(CancellationToken.None);
+        _icon.ShowBalloonTip(
+            4000,
+            "控制台登录已重置",
+            "网页会话已撤销。设备身份、配对和显示器映射均已保留，请重新创建本机管理员。",
+            ToolTipIcon.Info);
+        OpenDashboard();
     }
 
     private async Task RunAsync(Func<Task> operation)
