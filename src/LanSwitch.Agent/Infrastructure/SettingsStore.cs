@@ -129,7 +129,8 @@ public sealed record AgentSettings(
     int RemoteDesktopFramesPerSecond = RemoteDesktopConfiguration.DefaultFramesPerSecond,
     int RemoteDesktopJpegQuality = RemoteDesktopConfiguration.DefaultJpegQuality,
     string SwitchMode = SwitchModeConfiguration.DirectSignal,
-    AiAssistantSettings? AiAssistant = null)
+    AiAssistantSettings? AiAssistant = null,
+    bool LockedSessionControlEnabled = false)
 {
     public static AgentSettings CreateDefault(string deviceId) => new(
         deviceId,
@@ -158,7 +159,8 @@ public sealed record AgentSettings(
         RemoteDesktopConfiguration.DefaultFramesPerSecond,
         RemoteDesktopConfiguration.DefaultJpegQuality,
         SwitchModeConfiguration.DirectSignal,
-        AiAssistantSettings.CreateDefault());
+        AiAssistantSettings.CreateDefault(),
+        false);
 }
 
 public sealed record StoredPeer(string Id, string Name, string Address, int Port, string Fingerprint, string CertificateBase64, DateTimeOffset PairedAt);

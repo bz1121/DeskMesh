@@ -41,6 +41,7 @@ public sealed class AgentBoundaryTests
         Assert.False(defaults.ClipboardImageEnabled);
         Assert.False(defaults.AudioForwardingEnabled);
         Assert.False(defaults.RemoteDesktopEnabled);
+        Assert.False(defaults.LockedSessionControlEnabled);
     }
 
     [Fact]

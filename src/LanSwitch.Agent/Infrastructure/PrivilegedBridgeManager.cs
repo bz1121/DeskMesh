@@ -7,11 +7,13 @@ public sealed class PrivilegedBridgeManager
 {
     private static readonly TimeSpan ProcessTimeout = TimeSpan.FromSeconds(45);
     private readonly PrivilegedBridgeClient _client;
+    private readonly SettingsStore _settings;
     private readonly string _bridgeExecutable;
 
-    public PrivilegedBridgeManager(PrivilegedBridgeClient client)
+    public PrivilegedBridgeManager(PrivilegedBridgeClient client, SettingsStore settings)
     {
         _client = client;
+        _settings = settings;
         _bridgeExecutable = Path.Combine(
             AppContext.BaseDirectory,
             "privileged",
@@ -21,12 +23,14 @@ public sealed class PrivilegedBridgeManager
     public PrivilegedBridgeStatus GetStatus()
     {
         var packaged = File.Exists(_bridgeExecutable);
-        var response = _client.GetStatus();
+        var lockedSessionControlEnabled = _settings.Snapshot.LockedSessionControlEnabled;
+        var response = _client.GetStatus(lockedSessionControlEnabled);
         return new PrivilegedBridgeStatus(
             packaged,
             response.Available,
             response.SecureDesktopActive,
-            response.Error);
+            response.Error,
+            lockedSessionControlEnabled);
     }
 
     public Task<PrivilegedBridgeStatus> InstallAsync(CancellationToken cancellationToken) =>
@@ -82,4 +86,5 @@ public sealed record PrivilegedBridgeStatus(
     bool Packaged,
     bool Installed,
     bool SecureDesktopActive,
-    string? Message);
+    string? Message,
+    bool LockedSessionControlEnabled);

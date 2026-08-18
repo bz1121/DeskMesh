@@ -191,6 +191,31 @@ export default function AdminPage({
     }
   }
 
+  async function updateLockedSessionControl(enabled: boolean) {
+    setUacBusy(true);
+    onNotice(null);
+    try {
+      const status = await apiRequest<PrivilegedBridgeStatus>(
+        "/api/v1/admin/uac-bridge/settings",
+        jsonRequest("PUT", { lockedSessionControlEnabled: enabled }),
+      );
+      setUacBridge(status);
+      onNotice({
+        tone: enabled ? "warning" : "success",
+        message: enabled
+          ? "已允许当前已登录但锁定的 Windows 会话接收远程输入；请同时确认 Windows 的 Ctrl+Alt+Del 本地组策略。"
+          : "锁屏会话控制已关闭；UAC 提示控制仍可继续使用。",
+      });
+    } catch (error) {
+      onNotice({
+        tone: "danger",
+        message: adminErrorMessage(error, "无法保存锁屏会话控制设置。"),
+      });
+    } finally {
+      setUacBusy(false);
+    }
+  }
+
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPasswordError(null);
@@ -443,9 +468,28 @@ export default function AdminPage({
             </div>
             <div>
               <dt>注入范围</dt>
-              <dd>仅 UAC consent.exe 安全桌面</dd>
+              <dd>
+                {uacBridge?.lockedSessionControlEnabled
+                  ? "UAC + 当前已登录的锁定会话"
+                  : "仅 UAC consent.exe 安全桌面"}
+              </dd>
             </div>
           </dl>
+          <label className="toggle-row">
+            <span>
+              <strong>允许控制已锁定的当前 Windows 会话</strong>
+              <small>
+                默认关闭。开启后，当前远程桌面会话可在 LogonUI 输入并请求 Ctrl+Alt+Del；DeskMesh 不读取或保存 Windows 密码。
+              </small>
+            </span>
+            <input
+              type="checkbox"
+              aria-label="允许控制已锁定的当前 Windows 会话"
+              checked={uacBridge?.lockedSessionControlEnabled ?? false}
+              disabled={uacBusy || !uacBridge}
+              onChange={(event) => void updateLockedSessionControl(event.target.checked)}
+            />
+          </label>
           <div className="admin-session-actions">
             <button
               type="button"
@@ -462,6 +506,7 @@ export default function AdminPage({
           </div>
           <p className="admin-card-note">
             安装和卸载会弹出 Windows UAC；建议只在受信任的私人电脑上启用。
+            锁屏扩展只支持已经登录后再锁定的会话，不支持开机登录、注销后的登录、BIOS 或绕过 Windows 凭据校验。
           </p>
         </article>
 

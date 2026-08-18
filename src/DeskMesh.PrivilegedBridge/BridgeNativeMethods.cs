@@ -268,6 +268,9 @@ internal static class BridgeNativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool CloseDesktop(nint desktop);
 
+    [DllImport("sas.dll", EntryPoint = "SendSAS")]
+    internal static extern void SendSecureAttentionSequence([MarshalAs(UnmanagedType.Bool)] bool asUser);
+
     internal static Win32Exception CreateError(string operation) =>
         new(Marshal.GetLastWin32Error(), operation);
 }

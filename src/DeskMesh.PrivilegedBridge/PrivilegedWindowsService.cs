@@ -158,11 +158,45 @@ internal sealed class PrivilegedWindowsService : IDisposable
                 catch (EndOfStreamException) { return; }
                 catch (IOException) { return; }
 
-                var response = await HandleRequestAsync(sessionId, request, serviceToken).ConfigureAwait(false);
+                var response = request.Operation == PrivilegedBridgeContract.SecureAttentionOperation
+                    ? HandleSecureAttentionRequest(pipe, request)
+                    : await HandleRequestAsync(sessionId, request, serviceToken).ConfigureAwait(false);
                 await PrivilegedBridgeContract.WriteAsync(pipe, response, serviceToken).ConfigureAwait(false);
             }
         }
     }
+
+    private static PrivilegedBridgeResponse HandleSecureAttentionRequest(
+        NamedPipeServerStream pipe,
+        PrivilegedBridgeRequest request)
+    {
+        if (!IsSecureAttentionRequestAllowed(request))
+            return Failure("The secure attention request is not allowed.");
+
+        try
+        {
+            // SendSAS(true) must run while the LocalSystem service impersonates
+            // the authenticated interactive user represented by this pipe.
+            pipe.RunAsClient(() => BridgeNativeMethods.SendSecureAttentionSequence(asUser: true));
+            return new PrivilegedBridgeResponse(
+                PrivilegedBridgeContract.Version,
+                Available: true,
+                SecureDesktopActive: false,
+                Attempted: 1,
+                Succeeded: 1,
+                DesktopScope: "secure-attention-requested");
+        }
+        catch (Exception exception)
+        {
+            return Failure(exception.Message);
+        }
+    }
+
+    internal static bool IsSecureAttentionRequestAllowed(PrivilegedBridgeRequest request) =>
+        request.Version == PrivilegedBridgeContract.Version &&
+        request.Operation == PrivilegedBridgeContract.SecureAttentionOperation &&
+        request.AllowLockedSessionControl &&
+        (request.Events is null || request.Events.Count == 0);
 
     private async Task<PrivilegedBridgeResponse> HandleRequestAsync(
         uint sessionId,

@@ -23,20 +23,36 @@ public sealed class PrivilegedBridgeClient
 
     public string InstanceName { get; }
 
-    public PrivilegedBridgeResponse GetStatus() => Send(
-        new PrivilegedBridgeRequest(PrivilegedBridgeContract.Version, PrivilegedBridgeContract.StatusOperation),
+    public PrivilegedBridgeResponse GetStatus(bool allowLockedSessionControl = false) => Send(
+        new PrivilegedBridgeRequest(
+            PrivilegedBridgeContract.Version,
+            PrivilegedBridgeContract.StatusOperation,
+            AllowLockedSessionControl: allowLockedSessionControl),
         TimeSpan.FromMilliseconds(180));
 
-    public PrivilegedBridgeResponse Inject(IReadOnlyList<PrivilegedBridgeInputEvent> events) => Send(
+    public PrivilegedBridgeResponse Inject(
+        IReadOnlyList<PrivilegedBridgeInputEvent> events,
+        bool allowLockedSessionControl = false) => Send(
         new PrivilegedBridgeRequest(
             PrivilegedBridgeContract.Version,
             PrivilegedBridgeContract.InjectOperation,
-            events),
+            events,
+            allowLockedSessionControl),
         DefaultTimeout);
 
-    public PrivilegedBridgeResponse Release() => Send(
-        new PrivilegedBridgeRequest(PrivilegedBridgeContract.Version, PrivilegedBridgeContract.ReleaseOperation),
+    public PrivilegedBridgeResponse Release(bool allowLockedSessionControl = false) => Send(
+        new PrivilegedBridgeRequest(
+            PrivilegedBridgeContract.Version,
+            PrivilegedBridgeContract.ReleaseOperation,
+            AllowLockedSessionControl: allowLockedSessionControl),
         DefaultTimeout);
+
+    public PrivilegedBridgeResponse SendSecureAttentionSequence() => Send(
+        new PrivilegedBridgeRequest(
+            PrivilegedBridgeContract.Version,
+            PrivilegedBridgeContract.SecureAttentionOperation,
+            AllowLockedSessionControl: true),
+        TimeSpan.FromSeconds(2));
 
     private PrivilegedBridgeResponse Send(PrivilegedBridgeRequest request, TimeSpan timeout)
     {
@@ -48,7 +64,7 @@ public sealed class PrivilegedBridgeClient
                 _pipeName,
                 PipeDirection.InOut,
                 PipeOptions.Asynchronous | PipeOptions.WriteThrough,
-                TokenImpersonationLevel.Identification);
+                TokenImpersonationLevel.Impersonation);
             pipe.ConnectAsync(deadline.Token).GetAwaiter().GetResult();
             PrivilegedBridgeContract.WriteAsync(pipe, request, deadline.Token).AsTask().GetAwaiter().GetResult();
             return PrivilegedBridgeContract.ReadAsync<PrivilegedBridgeResponse>(pipe, deadline.Token)

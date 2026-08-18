@@ -561,6 +561,15 @@ const RemoteDesktopPanel = forwardRef<RemoteDesktopPanelHandle, RemoteDesktopPan
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(messageValue));
   }
 
+  function requestSecureAttention() {
+    if (phase !== "connected") return;
+    send({ type: "secure-attention" });
+    onNotice({
+      tone: "warning",
+      message: "已请求目标电脑显示 Ctrl+Alt+Del 界面；目标端必须已安装 UAC 组件、启用锁屏会话控制，并允许软件安全注意序列。",
+    });
+  }
+
   function coordinates(event: { clientX: number; clientY: number }) {
     const canvas = canvasRef.current;
     if (!canvas) return null;
@@ -752,14 +761,22 @@ const RemoteDesktopPanel = forwardRef<RemoteDesktopPanelHandle, RemoteDesktopPan
           {seamlessOverlay ? (
             <>
               <span className="remote-overlay-hint">按 Esc 返回本机</span>
+              <button type="button" className="secondary-button" onClick={requestSecureAttention}>
+                发送 Ctrl+Alt+Del
+              </button>
               <button type="button" className="danger-button remote-return-button" onClick={() => stopSeamless()}>
                 返回本机
               </button>
             </>
           ) : (
-            <button type="button" className="small-button" disabled={phase !== "connected"} onClick={() => void viewerRef.current?.requestFullscreen()}>
-              全屏
-            </button>
+            <>
+              <button type="button" className="small-button" disabled={phase !== "connected"} onClick={requestSecureAttention}>
+                Ctrl+Alt+Del
+              </button>
+              <button type="button" className="small-button" disabled={phase !== "connected"} onClick={() => void viewerRef.current?.requestFullscreen()}>
+                全屏
+              </button>
+            </>
           )}
         </div>
         <div className="remote-canvas-wrap">
@@ -786,7 +803,7 @@ const RemoteDesktopPanel = forwardRef<RemoteDesktopPanelHandle, RemoteDesktopPan
         </div>
       </div>
       <p className="remote-desktop-note">
-        远程桌面会话会同时尝试传输画面、画面内输入与系统音频；音频失败不会中断画面和输入。90 FPS 是目标上限，实际帧率取决于远端 CPU、分辨率和局域网。仅支持登录后的普通 Windows 桌面；UAC、锁屏、Ctrl+Alt+Del、BIOS 和部分反作弊程序仍需在远端本机操作。
+        远程桌面会话会同时尝试传输画面、画面内输入与系统音频；音频失败不会中断画面和输入。90 FPS 是目标上限，实际帧率取决于远端 CPU、分辨率和局域网。安装 UAC 组件后可控制 UAC；目标端另行开启锁屏扩展并配置 Windows 策略后，可解锁当前已登录的锁定会话。开机登录、注销后的登录、BIOS 和部分反作弊程序仍需在远端本机操作。
       </p>
     </section>
   );

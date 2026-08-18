@@ -43,7 +43,9 @@ flowchart LR
 - WASAPI loopback 系统音频；
 - 登录后普通桌面的 GDI 抓屏。
 
-这些能力受 Windows 完整性级别和安全桌面限制。默认 Agent 不能控制 UAC；用户可显式安装独立的 `DeskMesh.PrivilegedBridge` Windows 服务。服务通过仅允许当前用户 SID 与 LocalSystem 的命名管道接收有界、版本化的键鼠消息，再在对应会话的 `winsta0\\winlogon` 桌面启动最小辅助进程。协议不包含命令、路径或任意载荷；辅助进程同时要求输入桌面名为 `Winlogon` 且同一会话存在 Windows `consent.exe`，避免把锁屏或登录界面误判成 UAC。UAC 仍需人工确认；锁屏、登录前、Ctrl+Alt+Del、BIOS 和部分反作弊应用仍不支持。
+这些能力受 Windows 完整性级别和安全桌面限制。默认 Agent 不能控制 UAC；用户可显式安装独立的 `DeskMesh.PrivilegedBridge` Windows 服务。服务通过仅允许当前用户 SID 与 LocalSystem 的命名管道接收有界、版本化的键鼠消息，再在对应会话的 `winsta0\\winlogon` 桌面启动最小辅助进程。协议不包含命令、路径或任意载荷。默认只在同会话 `consent.exe` 存在时把 `Winlogon` 判为 `uac-consent`；只有用户另行开启锁屏扩展且同会话 `LogonUI.exe` 存在时，才判为 `locked-session`。官方安全注意序列由服务在已认证命名管道客户端的模拟令牌下调用 `SendSAS(true)`，不通过普通键盘注入伪造。
+
+Windows GDI 不能从普通用户桌面采集 Winlogon，因此锁屏扩展只保持已认证输入通道，不传输锁屏画面、不读取凭据，也不支持开机/注销后的登录。`SendSAS` 是否生效还由目标电脑的 Windows“软件安全注意序列”服务策略决定；DeskMesh 不修改策略。UAC 仍需人工确认，BIOS 和部分反作弊应用仍不支持。
 
 ## 网络边界
 

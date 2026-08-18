@@ -34,7 +34,8 @@ public sealed class PrivilegedBridgeTests
         var request = new PrivilegedBridgeRequest(
             PrivilegedBridgeContract.Version,
             PrivilegedBridgeContract.InjectOperation,
-            [new PrivilegedBridgeInputEvent("keyboard", 65, 30, 0, 123)]);
+            [new PrivilegedBridgeInputEvent("keyboard", 65, 30, 0, 123)],
+            AllowLockedSessionControl: true);
         await using var stream = new MemoryStream();
 
         await PrivilegedBridgeContract.WriteAsync(stream, request, CancellationToken.None);
@@ -46,6 +47,7 @@ public sealed class PrivilegedBridgeTests
         Assert.Equal(request.Version, restored.Version);
         Assert.Equal(request.Operation, restored.Operation);
         Assert.Equal(request.Events, restored.Events);
+        Assert.True(restored.AllowLockedSessionControl);
     }
 
     [Fact]
@@ -100,16 +102,46 @@ public sealed class PrivilegedBridgeTests
     }
 
     [Theory]
-    [InlineData("Winlogon", true, true)]
-    [InlineData("Winlogon", false, false)]
-    [InlineData("Default", true, false)]
-    [InlineData(null, true, false)]
-    public void HelperAllowsOnlyConsentUiOnWinlogonDesktop(
+    [InlineData("Winlogon", true, true, false, "uac-consent")]
+    [InlineData("Winlogon", true, false, false, "uac-consent")]
+    [InlineData("Winlogon", false, true, true, "locked-session")]
+    [InlineData("Winlogon", false, true, false, null)]
+    [InlineData("Winlogon", false, false, true, null)]
+    [InlineData("Default", true, true, true, null)]
+    [InlineData(null, true, true, true, null)]
+    public void HelperSeparatesUacFromOptInLockedSessionControl(
         string? desktopName,
         bool consentUiActive,
-        bool expected)
+        bool logonUiActive,
+        bool allowLockedSessionControl,
+        string? expected)
     {
-        Assert.Equal(expected, PrivilegedSessionHelper.IsAllowedDesktop(desktopName, consentUiActive));
+        Assert.Equal(
+            expected,
+            PrivilegedSessionHelper.ClassifyDesktop(
+                desktopName,
+                consentUiActive,
+                logonUiActive,
+                allowLockedSessionControl));
+    }
+
+    [Fact]
+    public void ServiceOnlyAcceptsExplicitEmptySecureAttentionRequest()
+    {
+        var allowed = new PrivilegedBridgeRequest(
+            PrivilegedBridgeContract.Version,
+            PrivilegedBridgeContract.SecureAttentionOperation,
+            AllowLockedSessionControl: true);
+
+        Assert.True(PrivilegedWindowsService.IsSecureAttentionRequestAllowed(allowed));
+        Assert.False(PrivilegedWindowsService.IsSecureAttentionRequestAllowed(
+            allowed with { AllowLockedSessionControl = false }));
+        Assert.False(PrivilegedWindowsService.IsSecureAttentionRequestAllowed(
+            allowed with { Events = [new PrivilegedBridgeInputEvent("keyboard", 17, 0)] }));
+        Assert.False(PrivilegedWindowsService.IsSecureAttentionRequestAllowed(
+            allowed with { Version = PrivilegedBridgeContract.Version - 1 }));
+        Assert.False(PrivilegedWindowsService.IsSecureAttentionRequestAllowed(
+            allowed with { Operation = PrivilegedBridgeContract.InjectOperation }));
     }
 
     private sealed class RecordingInjector : IWindowsInputInjector

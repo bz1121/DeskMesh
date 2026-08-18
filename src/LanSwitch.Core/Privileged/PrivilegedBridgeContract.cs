@@ -7,12 +7,13 @@ namespace LanSwitch.Core.Privileged;
 
 public static class PrivilegedBridgeContract
 {
-    public const int Version = 1;
+    public const int Version = 2;
     public const int MaximumMessageBytes = 64 * 1024;
     public const int MaximumEventsPerBatch = 128;
     public const string StatusOperation = "status";
     public const string InjectOperation = "inject";
     public const string ReleaseOperation = "release";
+    public const string SecureAttentionOperation = "secure-attention";
     public const string ShutdownOperation = "shutdown";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -88,7 +89,8 @@ public sealed record PrivilegedBridgeInputEvent(
 public sealed record PrivilegedBridgeRequest(
     int Version,
     string Operation,
-    IReadOnlyList<PrivilegedBridgeInputEvent>? Events = null);
+    IReadOnlyList<PrivilegedBridgeInputEvent>? Events = null,
+    bool AllowLockedSessionControl = false);
 
 public sealed record PrivilegedBridgeResponse(
     int Version,
@@ -97,4 +99,5 @@ public sealed record PrivilegedBridgeResponse(
     int Attempted,
     int Succeeded,
     string? DesktopName = null,
-    string? Error = null);
+    string? Error = null,
+    string? DesktopScope = null);

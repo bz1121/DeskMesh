@@ -161,6 +161,7 @@ export type PrivilegedBridgeStatus = {
   installed: boolean;
   secureDesktopActive: boolean;
   message?: string | null;
+  lockedSessionControlEnabled: boolean;
 };
 
 export type AiAssistantStatus = {

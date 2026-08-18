@@ -14,5 +14,21 @@ public static class PrivilegedBridgeEndpoints
             PrivilegedBridgeManager manager,
             CancellationToken cancellationToken) =>
             Results.Ok(await manager.UninstallAsync(cancellationToken)));
+        app.MapPut("/api/v1/admin/uac-bridge/settings", async (
+            PrivilegedBridgeSettingsRequest request,
+            SettingsStore settings,
+            PrivilegedBridgeManager manager,
+            CancellationToken cancellationToken) =>
+        {
+            await settings.UpdateAsync(
+                current => current with
+                {
+                    LockedSessionControlEnabled = request.LockedSessionControlEnabled
+                },
+                cancellationToken);
+            return Results.Ok(manager.GetStatus());
+        });
     }
 }
+
+public sealed record PrivilegedBridgeSettingsRequest(bool LockedSessionControlEnabled);

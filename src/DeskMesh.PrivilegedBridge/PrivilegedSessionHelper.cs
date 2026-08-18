@@ -54,7 +54,12 @@ internal static class PrivilegedSessionHelper
             return Failure("The privileged bridge protocol version is not supported.");
 
         var desktopName = GetInputDesktopName();
-        var secureDesktopActive = IsAllowedDesktop(desktopName, IsConsentUiActive());
+        var desktopScope = ClassifyDesktop(
+            desktopName,
+            IsProcessActiveInCurrentSession("consent"),
+            IsProcessActiveInCurrentSession("LogonUI"),
+            request.AllowLockedSessionControl);
+        var secureDesktopActive = desktopScope is not null;
         if (request.Operation == PrivilegedBridgeContract.ReleaseOperation)
         {
             var released = injector.ReleaseAll();
@@ -64,7 +69,8 @@ internal static class PrivilegedSessionHelper
                 SecureDesktopActive: secureDesktopActive,
                 released.Attempted,
                 released.Released,
-                desktopName);
+                desktopName,
+                DesktopScope: desktopScope);
         }
 
         if (request.Operation != PrivilegedBridgeContract.InjectOperation)
@@ -77,7 +83,8 @@ internal static class PrivilegedSessionHelper
                 Attempted: 0,
                 Succeeded: 0,
                 desktopName,
-                "The Windows secure desktop is not active.");
+                "The requested Windows secure desktop scope is not active.",
+                desktopScope);
         if (request.Events is null ||
             request.Events.Count is <= 0 or > PrivilegedBridgeContract.MaximumEventsPerBatch ||
             request.Events.Any(static input => !IsValid(input)))
@@ -98,7 +105,8 @@ internal static class PrivilegedSessionHelper
             attempted,
             succeeded,
             desktopName,
-            attempted == succeeded ? null : "Windows rejected part of the secure desktop input batch.");
+            attempted == succeeded ? null : "Windows rejected part of the secure desktop input batch.",
+            desktopScope);
     }
 
     private static InputInjectionResult Inject(IWindowsInputInjector injector, PrivilegedBridgeInputEvent input) =>
@@ -163,15 +171,23 @@ internal static class PrivilegedSessionHelper
         }
     }
 
-    internal static bool IsAllowedDesktop(string? desktopName, bool consentUiActive) =>
-        consentUiActive && string.Equals(desktopName, "Winlogon", StringComparison.OrdinalIgnoreCase);
+    internal static string? ClassifyDesktop(
+        string? desktopName,
+        bool consentUiActive,
+        bool logonUiActive,
+        bool allowLockedSessionControl)
+    {
+        if (!string.Equals(desktopName, "Winlogon", StringComparison.OrdinalIgnoreCase)) return null;
+        if (consentUiActive) return "uac-consent";
+        return allowLockedSessionControl && logonUiActive ? "locked-session" : null;
+    }
 
-    private static bool IsConsentUiActive()
+    private static bool IsProcessActiveInCurrentSession(string processName)
     {
         try
         {
             var currentSession = Process.GetCurrentProcess().SessionId;
-            return Process.GetProcessesByName("consent").Any(process =>
+            return Process.GetProcessesByName(processName).Any(process =>
             {
                 using (process)
                 {

@@ -72,7 +72,7 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
         _hook.Stop();
         _rawMouse.Stop();
         _injector.ReleaseAll();
-        _ = _privilegedBridge.Release();
+        _ = _privilegedBridge.Release(_settings.Snapshot.LockedSessionControlEnabled);
         _injector.Stop();
         return Task.CompletedTask;
     }
@@ -248,7 +248,9 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
         }
         if (failedPackets.Count > 0)
         {
-            var elevated = _privilegedBridge.Inject(failedPackets.Select(ToPrivilegedEvent).ToArray());
+            var elevated = _privilegedBridge.Inject(
+                failedPackets.Select(ToPrivilegedEvent).ToArray(),
+                _settings.Snapshot.LockedSessionControlEnabled);
             if (!elevated.Available || elevated.Succeeded != failedPackets.Count)
             {
                 _input.FailIncoming();
@@ -273,7 +275,7 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
     {
         var result = _injector.ReleaseAll();
         for (var attempt = 0; result.Remaining > 0 && attempt < 2; attempt++) result = _injector.ReleaseAll();
-        var privilegedRelease = _privilegedBridge.Release();
+        var privilegedRelease = _privilegedBridge.Release(_settings.Snapshot.LockedSessionControlEnabled);
         if (result.Remaining > 0)
             _state.Publish("notice", new { level = "error", message = $"仍有 {result.Remaining} 个按键未能释放，请按紧急快捷键并切回本机。" });
         if (privilegedRelease.Available && privilegedRelease.Attempted != privilegedRelease.Succeeded)
