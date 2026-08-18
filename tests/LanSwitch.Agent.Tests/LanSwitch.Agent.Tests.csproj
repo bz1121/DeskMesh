@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\DeskMesh.PrivilegedBridge\DeskMesh.PrivilegedBridge.csproj" />
     <ProjectReference Include="..\..\src\LanSwitch.Agent\LanSwitch.Agent.csproj" />
   </ItemGroup>
 

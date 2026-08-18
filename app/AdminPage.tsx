@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import {
   ApiError,
   apiRequest,
@@ -7,6 +7,7 @@ import {
   jsonRequest,
   MINIMUM_ADMIN_PASSWORD_LENGTH,
   resetSessionToken,
+  type PrivilegedBridgeStatus,
   type SessionRevokeResult,
 } from "../web/api";
 import { useAdminAuth } from "./AuthGate";
@@ -36,8 +37,52 @@ export default function AdminPage({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [sessionsBusy, setSessionsBusy] = useState(false);
+  const [uacBridge, setUacBridge] = useState<PrivilegedBridgeStatus | null>(null);
+  const [uacBusy, setUacBusy] = useState(false);
 
   const activeSessionCount = Math.max(1, auth.activeSessionCount ?? 1);
+
+  useEffect(() => {
+    if (!active || connection !== "online") return;
+    let cancelled = false;
+    void apiRequest<PrivilegedBridgeStatus>("/api/v1/admin/uac-bridge")
+      .then((status) => {
+        if (!cancelled) setUacBridge(status);
+      })
+      .catch(() => {
+        if (!cancelled) setUacBridge(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, connection]);
+
+  async function updateUacBridge(operation: "install" | "uninstall") {
+    setUacBusy(true);
+    onNotice(null);
+    try {
+      const status = await apiRequest<PrivilegedBridgeStatus>(
+        `/api/v1/admin/uac-bridge/${operation}`,
+        jsonRequest("POST", {}),
+        60_000,
+      );
+      setUacBridge(status);
+      onNotice({
+        tone: "success",
+        message:
+          operation === "install"
+            ? "UAC 安全桌面组件已安装；目标电脑出现 UAC 提示时仍需明确确认。"
+            : "UAC 安全桌面组件已卸载。",
+      });
+    } catch (error) {
+      onNotice({
+        tone: "danger",
+        message: adminErrorMessage(error, "无法更新 UAC 安全桌面组件。"),
+      });
+    } finally {
+      setUacBusy(false);
+    }
+  }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -258,11 +303,58 @@ export default function AdminPage({
           <ul>
             <li>管理员密码只保护 127.0.0.1:5616 上的本机控制台。</li>
             <li>设备之间仍使用一次性配对、mTLS 与证书指纹固定。</li>
-            <li>登录不会获得 Windows 管理员权限，也不能越过 UAC、锁屏或登录界面。</li>
+            <li>登录不会获得 Windows 管理员权限；UAC 仍由 Windows 显示并要求确认。</li>
             <li>任何密码、会话令牌和一次性设置令牌都不会同步到另一台电脑。</li>
           </ul>
           <p>
             忘记密码或凭据损坏时，请从 DeskMesh 托盘菜单重置控制台登录；网页不会提供匿名重置入口。
+          </p>
+        </article>
+
+        <article className="admin-card admin-boundary-card">
+          <header className="admin-card-heading">
+            <div>
+              <span>Windows 权限边界</span>
+              <h3>UAC 安全桌面控制</h3>
+            </div>
+            <span className="admin-role">
+              {uacBridge ? (uacBridge.installed ? "已安装" : "未安装") : "检测中"}
+            </span>
+          </header>
+          <p className="admin-card-copy">
+            可选组件以 LocalSystem 服务运行，只接受 DeskMesh 固定格式的键盘和鼠标事件。
+            它不会关闭 UAC、不会自动同意提权，也不会执行命令。
+          </p>
+          <dl className="admin-facts">
+            <div>
+              <dt>发布包组件</dt>
+              <dd>{uacBridge?.packaged ? "可用" : "当前包未包含"}</dd>
+            </div>
+            <div>
+              <dt>服务状态</dt>
+              <dd>{uacBridge?.installed ? "已连接" : "未连接"}</dd>
+            </div>
+            <div>
+              <dt>注入范围</dt>
+              <dd>仅 UAC consent.exe 安全桌面</dd>
+            </div>
+          </dl>
+          <div className="admin-session-actions">
+            <button
+              type="button"
+              className={uacBridge?.installed ? "danger-button" : "primary-button"}
+              disabled={uacBusy || !uacBridge || (!uacBridge.installed && !uacBridge.packaged)}
+              onClick={() => void updateUacBridge(uacBridge?.installed ? "uninstall" : "install")}
+            >
+              {uacBusy
+                ? "等待 Windows 确认…"
+                : uacBridge?.installed
+                  ? "卸载安全桌面组件"
+                  : "安装安全桌面组件"}
+            </button>
+          </div>
+          <p className="admin-card-note">
+            安装和卸载会弹出 Windows UAC；建议只在受信任的私人电脑上启用。
           </p>
         </article>
       </div>

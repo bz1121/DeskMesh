@@ -103,6 +103,8 @@ internal static class Program
         builder.Services.AddSingleton<AudioRelayService>();
         builder.Services.AddSingleton<RemoteDesktopOutgoingSessionRegistry>();
         builder.Services.AddSingleton<RemoteDesktopService>();
+        builder.Services.AddSingleton<PrivilegedBridgeClient>();
+        builder.Services.AddSingleton<PrivilegedBridgeManager>();
         builder.Services.AddSingleton<DistributedPhysicalFollowService>();
         builder.Services.AddHostedService<PeerDiscoveryService>();
         builder.Services.AddHostedService<HeartbeatService>();
@@ -140,6 +142,7 @@ internal static class Program
         PhysicalFollowEndpoints.Map(app);
         AudioEndpoints.Map(app);
         RemoteDesktopEndpoints.Map(app);
+        PrivilegedBridgeEndpoints.Map(app);
         ApiEndpoints.Map(app);
 
         try

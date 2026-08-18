@@ -42,7 +42,7 @@ flowchart LR
 - WASAPI loopback 系统音频；
 - 登录后普通桌面的 GDI 抓屏。
 
-这些能力受 Windows 完整性级别和安全桌面限制，不能控制 UAC、锁屏、登录前、Ctrl+Alt+Del、BIOS 或部分反作弊应用。
+这些能力受 Windows 完整性级别和安全桌面限制。默认 Agent 不能控制 UAC；用户可显式安装独立的 `DeskMesh.PrivilegedBridge` Windows 服务。服务通过仅允许当前用户 SID 与 LocalSystem 的命名管道接收有界、版本化的键鼠消息，再在对应会话的 `winsta0\\winlogon` 桌面启动最小辅助进程。协议不包含命令、路径或任意载荷；辅助进程同时要求输入桌面名为 `Winlogon` 且同一会话存在 Windows `consent.exe`，避免把锁屏或登录界面误判成 UAC。UAC 仍需人工确认；锁屏、登录前、Ctrl+Alt+Del、BIOS 和部分反作弊应用仍不支持。
 
 ## 网络边界
 
@@ -90,6 +90,7 @@ flowchart LR
 app/                         React 页面与样式
 web/                         Vite 入口和本地开发代理
 src/LanSwitch.Agent/         托盘、Web/API、设备协调服务
+src/DeskMesh.PrivilegedBridge/ 可选 UAC 安全桌面输入服务与会话辅助进程
 src/LanSwitch.Core/          平台无关模型和状态机
 src/LanSwitch.Windows/       Win32、剪贴板、输入和 DDC/CI
 tests/                       Core、Agent、Windows 单元/边界测试

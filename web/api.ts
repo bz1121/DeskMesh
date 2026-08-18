@@ -156,6 +156,13 @@ export type SessionRevokeResult = {
   auth: AuthStatus;
 };
 
+export type PrivilegedBridgeStatus = {
+  packaged: boolean;
+  installed: boolean;
+  secureDesktopActive: boolean;
+  message?: string | null;
+};
+
 export type HotkeySettings = {
   switchToLocal: string;
   toggleRemote: string;

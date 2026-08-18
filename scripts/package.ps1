@@ -58,6 +58,7 @@ $stamp = Get-Date -Format "yyyyMMdd-HHmmss-fff"
 $artifactRoot = Join-Path $repoRoot "artifacts"
 $validationPath = Join-Path $artifactRoot "validation-$stamp-$PID"
 $publishBuildPath = Join-Path $artifactRoot "publish-build-$stamp-$PID"
+$privilegedBuildPath = Join-Path $artifactRoot "privileged-build-$stamp-$PID"
 $publishDirectory = Join-Path $artifactRoot "DeskMesh-$productVersion-win-x64-$stamp"
 $zipPath = "$publishDirectory.zip"
 New-Item -ItemType Directory -Path $publishDirectory -Force | Out-Null
@@ -75,6 +76,25 @@ try {
         --no-restore --configuration Release --runtime win-x64 --self-contained true `
         --output $publishDirectory --artifacts-path $publishBuildPath -p:SkipWebBuild=true
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed." }
+    $privilegedDirectory = Join-Path $publishDirectory "privileged"
+    & $DotNetPath restore "src\DeskMesh.PrivilegedBridge\DeskMesh.PrivilegedBridge.csproj" `
+        --locked-mode --runtime win-x64 --packages $NuGetPackages --configfile "NuGet.Config" `
+        --artifacts-path $privilegedBuildPath -p:NuGetLockFilePath=packages.win-x64.lock.json
+    if ($LASTEXITCODE -ne 0) { throw "privileged bridge restore failed." }
+    & $DotNetPath publish "src\DeskMesh.PrivilegedBridge\DeskMesh.PrivilegedBridge.csproj" `
+        --no-restore --configuration Release --runtime win-x64 --self-contained true `
+        --output $privilegedDirectory --artifacts-path $privilegedBuildPath
+    if ($LASTEXITCODE -ne 0) { throw "privileged bridge publish failed." }
+    $privilegedExecutable = Join-Path $privilegedDirectory "DeskMesh.PrivilegedBridge.exe"
+    if (-not (Test-Path -LiteralPath $privilegedExecutable -PathType Leaf)) {
+        throw "Privileged bridge executable is missing from the portable package."
+    }
+    $unexpectedPrivilegedFiles = @(Get-ChildItem -LiteralPath $privilegedDirectory -File | Where-Object {
+        $_.Name -ne "DeskMesh.PrivilegedBridge.exe"
+    })
+    if ($unexpectedPrivilegedFiles.Count -gt 0) {
+        throw "Privileged bridge must be a single executable. Unexpected: $($unexpectedPrivilegedFiles.Name -join ', ')"
+    }
     foreach ($readme in @("README.md", "README.zh-CN.md")) {
         Copy-Item -LiteralPath $readme -Destination (Join-Path $publishDirectory $readme)
     }

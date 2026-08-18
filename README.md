@@ -28,6 +28,7 @@ When upgrading from a release that did not have administrator login, the existin
 - A restricted write-only DDC compatibility mode that permits only HDMI1 `0x11` and DisplayPort `0x0F`; every mapping must be tested individually and confirmed visually.
 - Six-digit one-time pairing codes, human-verifiable security phrases, mutual TLS, epoch and sequence replay protection, multicast/directed-broadcast discovery, and manual IP entry.
 - A responsive Simplified Chinese control panel protected by a local administrator login, a tray-only first-run and recovery path, and optional startup after the current Windows user signs in.
+- An optional, explicitly installed Windows service that relays only authenticated keyboard and mouse events to the UAC secure desktop without disabling UAC or approving prompts automatically.
 
 For privacy, **automatic clipboard synchronization, audio forwarding, and remote desktop access are disabled on new installations**. Pair only with trusted devices and enable each capability locally as needed.
 
@@ -62,9 +63,9 @@ The default data directory is `%LOCALAPPDATA%\DeskMesh`. For compatibility with 
 
 ## Important limitations
 
-DeskMesh forwards input in software; it does not physically reconnect USB devices to another PC. Windows `SendInput` cannot reliably control the UAC secure desktop, the lock screen, pre-login interfaces, `Ctrl+Alt+Del`, BIOS/UEFI, elevated administrator windows, or some anti-cheat-protected games. Use a hardware KVM for those scenarios.
+DeskMesh forwards input in software; it does not physically reconnect USB devices to another PC. Normal `SendInput` cannot cross the UAC secure desktop. An optional privileged bridge can be installed from **Administrator settings** on each target PC to relay DeskMesh's fixed keyboard/mouse protocol while the UAC desktop is active. Windows still displays the consent prompt and the user must approve it; the bridge cannot execute commands or approve UAC by itself. Lock screens, pre-login interfaces, `Ctrl+Alt+Del`, BIOS/UEFI, and some anti-cheat-protected games remain unsupported—use a hardware KVM for those scenarios.
 
-The DeskMesh administrator is an application account, not a Windows administrator. Unlocking the control panel does not elevate DeskMesh, bypass UAC, or extend `SendInput` across Windows security boundaries. It also cannot defend against malicious code already running as the same Windows user, a compromised browser profile, or a Windows administrator.
+The DeskMesh administrator is an application account, not a Windows administrator. Unlocking the control panel does not elevate DeskMesh or bypass UAC. Installing or removing the optional UAC bridge is a separate Windows administrator action and always triggers a Windows consent prompt. DeskMesh also cannot defend against malicious code already running as the same Windows user, a compromised browser profile, or a Windows administrator.
 
 The web login protects the loopback control panel; peer authentication is a different boundary. Paired Agents still authenticate over the LAN with mutual TLS and pinned device certificates. A web session never replaces peer pairing, and pairing a device never signs that device into the local administrator panel. If the administrator password is forgotten, use the tray recovery command on that PC. Recovery ends local web sessions and resets only the control-panel credential; it does not delete the device identity, trusted peer records, or display mappings.
 

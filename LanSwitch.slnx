@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/DeskMesh.PrivilegedBridge/DeskMesh.PrivilegedBridge.csproj" />
     <Project Path="src/LanSwitch.Agent/LanSwitch.Agent.csproj" />
     <Project Path="src/LanSwitch.Core/LanSwitch.Core.csproj" />
     <Project Path="src/LanSwitch.Windows/LanSwitch.Windows.csproj" />

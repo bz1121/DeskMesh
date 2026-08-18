@@ -43,6 +43,9 @@ yarn-error.log*
 **/bin/
 **/obj/
 /.nuget/
+/.npm-cache/
+/.appdata/
+/.dotnet-cli/
 /artifacts/
 
 # Local agent state and generated web assets

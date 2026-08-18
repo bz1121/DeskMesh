@@ -159,6 +159,13 @@
           "NAudio": "[2.3.0, )"
         }
       },
+      "deskmesh.privilegedbridge": {
+        "type": "Project",
+        "dependencies": {
+          "LanSwitch.Core": "[0.1.0-alpha.2, )",
+          "LanSwitch.Windows": "[0.1.0-alpha.2, )"
+        }
+      },
       "lanswitch.core": {
         "type": "Project"
       },
