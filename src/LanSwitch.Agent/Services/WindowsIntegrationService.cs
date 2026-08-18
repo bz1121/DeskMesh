@@ -1,4 +1,5 @@
 using LanSwitch.Agent.Infrastructure;
+using LanSwitch.Core.Privileged;
 using LanSwitch.Windows.Display;
 using LanSwitch.Windows.Input;
 
@@ -11,6 +12,7 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
     private readonly FocusCoordinator _focus;
     private readonly InputCoordinator _input;
     private readonly DisplayCoordinator _display;
+    private readonly PrivilegedBridgeClient _privilegedBridge;
     private readonly ILogger<WindowsIntegrationService> _logger;
     private readonly IInputHook _hook;
     private readonly IRawMouseInputMonitor _rawMouse = new WindowsRawMouseInputMonitor();
@@ -23,13 +25,15 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
     private int _hookRestarting;
 
     public WindowsIntegrationService(SettingsStore settings, AppState state, FocusCoordinator focus,
-        InputCoordinator input, DisplayCoordinator display, ILogger<WindowsIntegrationService> logger)
+        InputCoordinator input, DisplayCoordinator display, PrivilegedBridgeClient privilegedBridge,
+        ILogger<WindowsIntegrationService> logger)
     {
         _settings = settings;
         _state = state;
         _focus = focus;
         _input = input;
         _display = display;
+        _privilegedBridge = privilegedBridge;
         _logger = logger;
         _activeHotkeys = HotkeyConfiguration.GetView(_settings.Snapshot);
         var hotkeys = HotkeyConfiguration.ToBindings(_settings.Snapshot);
@@ -68,6 +72,7 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
         _hook.Stop();
         _rawMouse.Stop();
         _injector.ReleaseAll();
+        _ = _privilegedBridge.Release(_settings.Snapshot.LockedSessionControlEnabled);
         _injector.Stop();
         return Task.CompletedTask;
     }
@@ -225,7 +230,7 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
 
     private void OnRemoteBatch(InputBatchPacket batch)
     {
-        var failed = false;
+        var failedPackets = new List<InputEventPacket>();
         foreach (var packet in batch.Events)
         {
             var result = packet.Type switch
@@ -239,14 +244,29 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
                 "mouse-wheel" => _injector.SendMouseWheel((short)packet.Value, packet.Code == 1),
                 _ => new InputInjectionResult(0, 0, 0)
             };
-            failed |= result.Attempted > 0 && !result.Succeeded;
+            if (result.Attempted > 0 && !result.Succeeded) failedPackets.Add(packet);
         }
-        if (failed)
+        if (failedPackets.Count > 0)
         {
-            _input.FailIncoming();
-            _state.Publish("notice", new { level = "error", message = "Windows 拒绝了部分输入注入，已释放全部远端按键。" });
+            var elevated = _privilegedBridge.Inject(
+                failedPackets.Select(ToPrivilegedEvent).ToArray(),
+                _settings.Snapshot.LockedSessionControlEnabled);
+            if (!elevated.Available || elevated.Succeeded != failedPackets.Count)
+            {
+                _input.FailIncoming();
+                _state.Publish("notice", new
+                {
+                    level = "error",
+                    message = elevated.Available
+                        ? "Windows 安全桌面拒绝了部分输入，已释放全部远端按键。"
+                        : "Windows 拒绝输入；如需控制 UAC 窗口，请在管理员设置中安装安全桌面组件。"
+                });
+            }
         }
     }
+
+    private static PrivilegedBridgeInputEvent ToPrivilegedEvent(InputEventPacket packet) =>
+        new(packet.Type, packet.Code, packet.Value, packet.Flags, packet.Timestamp);
 
     internal static bool IsTransientMouseMoveOnly(IReadOnlyList<InputEventPacket> packets) =>
         packets.Count > 0 && packets.All(static packet => packet.Type == "mouse-move" && packet.Flags == 0);
@@ -255,8 +275,11 @@ public sealed class WindowsIntegrationService : IHostedService, IDisposable
     {
         var result = _injector.ReleaseAll();
         for (var attempt = 0; result.Remaining > 0 && attempt < 2; attempt++) result = _injector.ReleaseAll();
+        var privilegedRelease = _privilegedBridge.Release(_settings.Snapshot.LockedSessionControlEnabled);
         if (result.Remaining > 0)
             _state.Publish("notice", new { level = "error", message = $"仍有 {result.Remaining} 个按键未能释放，请按紧急快捷键并切回本机。" });
+        if (privilegedRelease.Available && privilegedRelease.Attempted != privilegedRelease.Succeeded)
+            _state.Publish("notice", new { level = "error", message = "UAC 安全桌面仍有按键未释放，请在目标电脑按下 Ctrl+Alt+Delete。" });
     }
 
     private async Task<IReadOnlyList<DisplayProbeView>> ProbeDisplaysAsync(CancellationToken cancellationToken)

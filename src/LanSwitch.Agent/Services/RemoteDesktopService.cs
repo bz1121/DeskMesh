@@ -1,13 +1,16 @@
 using System.Diagnostics;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.Net.Http.Json;
 using System.Net.WebSockets;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using LanSwitch.Agent.Infrastructure;
+using LanSwitch.Core.Privileged;
 using LanSwitch.Windows.Input;
 
 namespace LanSwitch.Agent.Services;
@@ -23,6 +26,7 @@ public sealed class RemoteDesktopService : IDisposable
     private readonly PeerHttpClientFactory _clients;
     private readonly AudioRelayService _audio;
     private readonly RemoteDesktopOutgoingSessionRegistry _outgoingSessions;
+    private readonly PrivilegedBridgeClient _privilegedBridge;
     private readonly ILogger<RemoteDesktopService> _logger;
     private readonly SemaphoreSlim _captureGate = new(1, 1);
     private readonly RemoteDesktopSessionRegistry _sessions = new();
@@ -37,6 +41,7 @@ public sealed class RemoteDesktopService : IDisposable
         PeerHttpClientFactory clients,
         AudioRelayService audio,
         RemoteDesktopOutgoingSessionRegistry outgoingSessions,
+        PrivilegedBridgeClient privilegedBridge,
         ILogger<RemoteDesktopService> logger)
     {
         _identity = identity;
@@ -46,6 +51,7 @@ public sealed class RemoteDesktopService : IDisposable
         _clients = clients;
         _audio = audio;
         _outgoingSessions = outgoingSessions;
+        _privilegedBridge = privilegedBridge;
         _logger = logger;
         _injector.Start();
     }
@@ -176,6 +182,7 @@ public sealed class RemoteDesktopService : IDisposable
         finally
         {
             var release = _injector.ReleaseAll();
+            _ = _privilegedBridge.Release(_settings.Snapshot.LockedSessionControlEnabled);
             if (!release.Succeeded)
                 _state.AddDiagnostic("warning", "远程桌面", $"会话结束时仍有 {release.Remaining} 个远端按键未确认释放。");
             _captureGate.Release();
@@ -262,11 +269,25 @@ public sealed class RemoteDesktopService : IDisposable
         {
             if (!_settings.Snapshot.RemoteDesktopEnabled) break;
             var started = Stopwatch.GetTimestamp();
-            sourceGraphics.CopyFromScreen(
-                screen.Bounds.Location,
-                Point.Empty,
-                screen.Bounds.Size,
-                CopyPixelOperation.SourceCopy);
+            try
+            {
+                sourceGraphics.CopyFromScreen(
+                    screen.Bounds.Location,
+                    Point.Empty,
+                    screen.Bounds.Size,
+                    CopyPixelOperation.SourceCopy);
+            }
+            catch (Exception exception) when (
+                _settings.Snapshot.LockedSessionControlEnabled &&
+                exception is ExternalException or Win32Exception)
+            {
+                // GDI cannot capture Winlogon. Keep the authenticated control
+                // channel alive so a user who can see the target's physical
+                // display can unlock the existing session; never synthesize a
+                // misleading lock-screen frame.
+                await Task.Delay(interval, cancellationToken);
+                continue;
+            }
             Image encoded = source;
             if (scaled is not null && scaledGraphics is not null)
             {
@@ -296,6 +317,7 @@ public sealed class RemoteDesktopService : IDisposable
         CancellationToken cancellationToken)
     {
         var rateWindow = Stopwatch.GetTimestamp();
+        var lastSecureAttention = 0L;
         var messagesInWindow = 0;
         while (!cancellationToken.IsCancellationRequested && socket.State == WebSocketState.Open)
         {
@@ -326,6 +348,14 @@ public sealed class RemoteDesktopService : IDisposable
                 payload,
                 RemoteDesktopProtocol.JsonOptions)
                 ?? throw new InvalidDataException("远程桌面输入消息为空。");
+            if (message.Type == "secure-attention")
+            {
+                var now = Stopwatch.GetTimestamp();
+                if (lastSecureAttention != 0 &&
+                    Stopwatch.GetElapsedTime(lastSecureAttention, now) < TimeSpan.FromSeconds(5))
+                    continue;
+                lastSecureAttention = now;
+            }
             ApplyInput(message, displayBounds);
         }
     }
@@ -352,28 +382,51 @@ public sealed class RemoteDesktopService : IDisposable
                     4 => MouseButton.X2,
                     _ => throw new InvalidDataException("远程鼠标按键无效。")
                 };
-                EnsureSucceeded(_injector.SendMouseButton(new MouseButtonInjection(
-                    button,
-                    message.Down.Value ? InputTransition.Down : InputTransition.Up)));
+                EnsureSucceeded(
+                    _injector.SendMouseButton(new MouseButtonInjection(
+                        button,
+                        message.Down.Value ? InputTransition.Down : InputTransition.Up)),
+                    new PrivilegedBridgeInputEvent(
+                        "mouse-button",
+                        (int)button,
+                        message.Down.Value ? 1 : 0));
                 return;
             case "wheel":
                 MovePointer(message, displayBounds, required: false);
                 if (message.Delta is null or < -1200 or > 1200)
                     throw new InvalidDataException("远程滚轮增量无效。");
-                EnsureSucceeded(_injector.SendMouseWheel((short)message.Delta.Value));
+                EnsureSucceeded(
+                    _injector.SendMouseWheel((short)message.Delta.Value),
+                    new PrivilegedBridgeInputEvent("mouse-wheel", 0, message.Delta.Value));
                 return;
             case "key":
                 if (message.VirtualKey is not (>= 1 and <= 254) || message.Down is null)
                     throw new InvalidDataException("远程键盘消息无效。");
-                EnsureSucceeded(_injector.SendKeyboard(new KeyboardInjection(
-                    (ushort)message.VirtualKey.Value,
-                    0,
-                    message.Down.Value ? InputTransition.Down : InputTransition.Up,
-                    UseScanCode: false,
-                    IsExtended: message.Extended == true)));
+                EnsureSucceeded(
+                    _injector.SendKeyboard(new KeyboardInjection(
+                        (ushort)message.VirtualKey.Value,
+                        0,
+                        message.Down.Value ? InputTransition.Down : InputTransition.Up,
+                        UseScanCode: false,
+                        IsExtended: message.Extended == true)),
+                    new PrivilegedBridgeInputEvent(
+                        "keyboard",
+                        message.VirtualKey.Value,
+                        0,
+                        (message.Down.Value ? 0 : 1) | (message.Extended == true ? 2 : 0)));
                 return;
             case "release":
                 _ = _injector.ReleaseAll();
+                _ = _privilegedBridge.Release(_settings.Snapshot.LockedSessionControlEnabled);
+                return;
+            case "secure-attention":
+                if (!_settings.Snapshot.LockedSessionControlEnabled)
+                    throw new InvalidOperationException("目标电脑未启用锁屏会话控制。");
+                var secureAttention = _privilegedBridge.SendSecureAttentionSequence();
+                if (!secureAttention.Available || secureAttention.Succeeded != 1)
+                    throw new InvalidOperationException(
+                        "无法发送 Ctrl+Alt+Del。请确认目标电脑已安装最新版 UAC 安全桌面组件，并在 Windows 本地组策略中允许软件安全注意序列。");
+                _state.AddDiagnostic("info", "远程桌面", "已请求 Windows 显示 Ctrl+Alt+Del 安全界面；DeskMesh 未读取或保存登录凭据。");
                 return;
             default:
                 throw new InvalidDataException("远程桌面输入类型无效。");
@@ -392,13 +445,22 @@ public sealed class RemoteDesktopService : IDisposable
             message.Y.Value,
             displayBounds,
             SystemInformation.VirtualScreen);
-        EnsureSucceeded(_injector.SendMousePosition(normalized.X, normalized.Y));
+        EnsureSucceeded(
+            _injector.SendMousePosition(normalized.X, normalized.Y),
+            new PrivilegedBridgeInputEvent("mouse-position", normalized.X, normalized.Y));
     }
 
-    private static void EnsureSucceeded(InputInjectionResult result)
+    private void EnsureSucceeded(InputInjectionResult result, PrivilegedBridgeInputEvent fallback)
     {
-        if (!result.Succeeded)
-            throw new InvalidOperationException($"Windows 拒绝远程输入，错误码 {result.ErrorCode}。");
+        if (result.Succeeded) return;
+        var elevated = _privilegedBridge.Inject(
+            [fallback],
+            _settings.Snapshot.LockedSessionControlEnabled);
+        if (!elevated.Available || elevated.Succeeded != 1)
+            throw new InvalidOperationException(
+                elevated.Available
+                    ? "Windows 安全桌面拒绝了远程输入。"
+                    : $"Windows 拒绝远程输入，错误码 {result.ErrorCode}；可在管理员设置中安装 UAC 安全桌面组件。");
     }
 
     private RuntimePeer RequireTarget(string targetDeviceId)
@@ -509,6 +571,7 @@ public sealed class RemoteDesktopService : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _ = _injector.ReleaseAll();
+        _ = _privilegedBridge.Release(_settings.Snapshot.LockedSessionControlEnabled);
         _injector.Dispose();
         _captureGate.Dispose();
     }

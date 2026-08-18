@@ -26,7 +26,7 @@ body:
     attributes:
       label: DeskMesh 版本
       description: 填写界面版本；自行构建时同时填写 commit SHA。
-      placeholder: 0.1.0-alpha.5 / abcdef1234
+      placeholder: 0.1.0-alpha.6 / abcdef1234
     validations:
       required: true
 

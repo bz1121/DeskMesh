@@ -103,6 +103,11 @@ internal static class Program
         builder.Services.AddSingleton<AudioRelayService>();
         builder.Services.AddSingleton<RemoteDesktopOutgoingSessionRegistry>();
         builder.Services.AddSingleton<RemoteDesktopService>();
+        builder.Services.AddSingleton<PrivilegedBridgeClient>();
+        builder.Services.AddSingleton<PrivilegedBridgeManager>();
+        builder.Services.AddSingleton<AiSecretStore>();
+        builder.Services.AddSingleton<IAiChatTransport, OpenAiCompatibleTransport>();
+        builder.Services.AddSingleton<AiRepairService>();
         builder.Services.AddSingleton<DistributedPhysicalFollowService>();
         builder.Services.AddHostedService<PeerDiscoveryService>();
         builder.Services.AddHostedService<HeartbeatService>();
@@ -112,6 +117,7 @@ internal static class Program
         builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AudioRelayService>());
         builder.Services.AddHostedService(serviceProvider =>
             serviceProvider.GetRequiredService<DistributedPhysicalFollowService>());
+        builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AiRepairService>());
         builder.Services.AddHostedService<WindowsIntegrationService>();
         builder.Services.AddRouting();
         builder.Services.AddProblemDetails();
@@ -140,6 +146,8 @@ internal static class Program
         PhysicalFollowEndpoints.Map(app);
         AudioEndpoints.Map(app);
         RemoteDesktopEndpoints.Map(app);
+        PrivilegedBridgeEndpoints.Map(app);
+        AiRepairEndpoints.Map(app);
         ApiEndpoints.Map(app);
 
         try

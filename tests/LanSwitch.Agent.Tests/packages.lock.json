@@ -154,9 +154,16 @@
       "DeskMesh": {
         "type": "Project",
         "dependencies": {
-          "LanSwitch.Core": "[0.1.0-alpha.5, )",
-          "LanSwitch.Windows": "[0.1.0-alpha.5, )",
+          "LanSwitch.Core": "[0.1.0-alpha.6, )",
+          "LanSwitch.Windows": "[0.1.0-alpha.6, )",
           "NAudio": "[2.3.0, )"
+        }
+      },
+      "deskmesh.privilegedbridge": {
+        "type": "Project",
+        "dependencies": {
+          "LanSwitch.Core": "[0.1.0-alpha.6, )",
+          "LanSwitch.Windows": "[0.1.0-alpha.6, )"
         }
       },
       "lanswitch.core": {
@@ -165,7 +172,7 @@
       "lanswitch.windows": {
         "type": "Project",
         "dependencies": {
-          "LanSwitch.Core": "[0.1.0-alpha.5, )"
+          "LanSwitch.Core": "[0.1.0-alpha.6, )"
         }
       }
     }

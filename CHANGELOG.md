@@ -4,6 +4,20 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 
 ## [Unreleased]
 
+## [0.1.0-alpha.6] - 2026-08-18
+
+### Added
+
+- 新增可选 UAC 安全桌面输入组件；管理员可在目标电脑显式安装或卸载，安装后可转发已认证的固定键鼠事件，但不会关闭或自动批准 UAC。
+- 新增可选 OpenAI 兼容 AI 诊断服务；API Key 由 DPAPI 单独保护，模型只接收脱敏诊断并只能建议三种固定的本地恢复动作。
+- UAC 组件新增默认关闭的“锁屏会话控制”：仅支持已经登录后再锁定的当前会话，并可通过 Windows 官方 `SendSAS` 请求 Ctrl+Alt+Del；不采集 Winlogon 画面或登录凭据。
+
+### Security
+
+- UAC 组件使用当前用户 SID 限定的命名管道、有界版本化协议和独立的每用户/实例安装目录；协议不接受命令、脚本、文件路径或任意模型输出。
+- 锁屏输入必须同时满足本机显式开关、活动控制会话、`Winlogon` 桌面与同会话 `LogonUI.exe`；安全注意序列仅由 LocalSystem 服务模拟已认证管道客户端调用，程序不修改 Windows 本地安全策略。
+- AI 输出视为不可信输入：禁止命令、脚本、注册表和任意文件操作；响应受大小/时间限制，自动修复还需本机状态门控与十分钟节流。
+
 ## [0.1.0-alpha.5] - 2026-08-10
 
 ### Changed
@@ -81,7 +95,8 @@ DeskMesh（桌联）的重要变更记录在此文件中。格式参考 [Keep a 
 - 90 FPS 是实验性目标上限，不是所有硬件和网络下的保证值。
 - DDC/CI 行为依赖具体显示器，必须保留实体切源手段。
 
-[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.5...HEAD
+[Unreleased]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.6...HEAD
+[0.1.0-alpha.6]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.5...v0.1.0-alpha.6
 [0.1.0-alpha.5]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.4...v0.1.0-alpha.5
 [0.1.0-alpha.4]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.3...v0.1.0-alpha.4
 [0.1.0-alpha.3]: https://github.com/bz1121/DeskMesh/compare/v0.1.0-alpha.2...v0.1.0-alpha.3

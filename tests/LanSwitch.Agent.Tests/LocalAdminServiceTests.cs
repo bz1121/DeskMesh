@@ -100,6 +100,28 @@ public sealed class LocalAdminServiceTests
     }
 
     [Fact]
+    public async Task PasswordLengthBoundaryIsFiveRejectedAndSixAcceptedForSetupAndChange()
+    {
+        using var context = TestContext.Create();
+        var bootstrap = context.Service.IssueBootstrapToken();
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            context.Service.SetupAsync("admin", "12345", bootstrap.Token));
+        var setup = await context.Service.SetupAsync("admin", "123456", bootstrap.Token);
+        Assert.True(setup.Succeeded);
+
+        var session = context.Service.Authenticate(setup.Token);
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            context.Service.ChangePasswordAsync(session.SessionId!, "123456", "abcde"));
+        var changed = await context.Service.ChangePasswordAsync(
+            session.SessionId!,
+            "123456",
+            "abcdef");
+        Assert.True(changed.Succeeded);
+        Assert.True((await context.Service.LoginAsync("admin", "abcdef")).Succeeded);
+    }
+
+    [Fact]
     public void SessionCookieIsHostOnlyHttpOnlyStrictAndScopedToTheAgentInstance()
     {
         using var first = TestContext.Create();

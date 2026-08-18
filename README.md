@@ -8,7 +8,7 @@
 
 DeskMesh is a local-network desktop companion for Windows 10 and Windows 11 x64. Run the same tray agent on two trusted PCs to share keyboard and mouse input, system audio, a remote desktop view, text and image clipboards, and approval-based file transfers. If both PCs share a DDC/CI-capable monitor, DeskMesh can also coordinate HDMI1 and DisplayPort input switching.
 
-> **Alpha notice:** The current public release is `v0.1.0-alpha.5`. Remote desktop, audio forwarding, and DDC/CI integration are experimental. The 90 FPS setting is an upper limit, not a performance guarantee for every computer or network. Release executables are not yet Authenticode-signed, so Windows SmartScreen may report an unknown publisher.
+> **Alpha notice:** The current public release is `v0.1.0-alpha.6`. Remote desktop, audio forwarding, and DDC/CI integration are experimental. The 90 FPS setting is an upper limit, not a performance guarantee for every computer or network. Release executables are not yet Authenticode-signed, so Windows SmartScreen may report an unknown publisher.
 
 DeskMesh has no cloud dependency. Its local control panel listens only on `127.0.0.1:5616`. Peer traffic uses `45832/TCP` with mutual TLS, ECDSA device identities, and pinned certificate fingerprints; automatic discovery uses `45830/UDP`.
 
@@ -28,17 +28,19 @@ When upgrading from a release that did not have administrator login, the existin
 - A restricted write-only DDC compatibility mode that permits only HDMI1 `0x11` and DisplayPort `0x0F`; every mapping must be tested individually and confirmed visually.
 - Six-digit one-time pairing codes, human-verifiable security phrases, mutual TLS, epoch and sequence replay protection, multicast/directed-broadcast discovery, and manual IP entry.
 - A responsive Simplified Chinese control panel protected by a local administrator login, a tray-only first-run and recovery path, and optional startup after the current Windows user signs in.
+- An optional, explicitly installed Windows service that relays only authenticated keyboard and mouse events to the UAC secure desktop without disabling UAC or approving prompts automatically. A separate, default-off setting can extend input to an already signed-in but locked session and request the official Windows secure-attention sequence.
+- Optional OpenAI-compatible diagnostics that send only redacted health data and can execute three locally allowlisted recovery actions; model output can never run commands, scripts, registry edits, or arbitrary file operations.
 
 For privacy, **automatic clipboard synchronization, audio forwarding, and remote desktop access are disabled on new installations**. Pair only with trusted devices and enable each capability locally as needed.
 
 ## Download and verify
 
-Download `DeskMesh-0.1.0-alpha.5-win-x64.zip` and `SHA256SUMS.txt` from [GitHub Releases](https://github.com/bz1121/DeskMesh/releases). Both PCs must run the same version.
+Download `DeskMesh-0.1.0-alpha.6-win-x64.zip` and `SHA256SUMS.txt` from [GitHub Releases](https://github.com/bz1121/DeskMesh/releases). Both PCs must run the same version.
 
 Verify the archive in PowerShell:
 
 ```powershell
-Get-FileHash .\DeskMesh-0.1.0-alpha.5-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeskMesh-0.1.0-alpha.6-win-x64.zip -Algorithm SHA256
 ```
 
 Compare the result with `SHA256SUMS.txt` on the release page before extracting the archive. DeskMesh is portable: it does not install a SYSTEM service and does not include LAN self-update or remote software-push functionality.
@@ -62,9 +64,13 @@ The default data directory is `%LOCALAPPDATA%\DeskMesh`. For compatibility with 
 
 ## Important limitations
 
-DeskMesh forwards input in software; it does not physically reconnect USB devices to another PC. Windows `SendInput` cannot reliably control the UAC secure desktop, the lock screen, pre-login interfaces, `Ctrl+Alt+Del`, BIOS/UEFI, elevated administrator windows, or some anti-cheat-protected games. Use a hardware KVM for those scenarios.
+DeskMesh forwards input in software; it does not physically reconnect USB devices to another PC. Normal `SendInput` cannot cross the UAC secure desktop. An optional privileged bridge can be installed from **Administrator settings** on each target PC to relay DeskMesh's fixed keyboard/mouse protocol while the UAC desktop is active. Windows still displays the consent prompt and the user must approve it; the bridge cannot execute commands or approve UAC by itself.
 
-The DeskMesh administrator is an application account, not a Windows administrator. Unlocking the control panel does not elevate DeskMesh, bypass UAC, or extend `SendInput` across Windows security boundaries. It also cannot defend against malicious code already running as the same Windows user, a compromised browser profile, or a Windows administrator.
+The same card offers a separate, default-off **locked-session control** switch. When enabled, an authenticated active control session can send input to `LogonUI` for the Windows user who was already signed in before locking. The remote-desktop GDI stream cannot capture Winlogon, so use the target's physical/shared display as the visual authority; DeskMesh never reads or stores the Windows password. The **Send Ctrl+Alt+Del** button uses Microsoft's `SendSAS` API and also requires the Windows policy **Disable or enable software Secure Attention Sequence** to be enabled for **Services** on the target. DeskMesh never changes that policy. Cold-boot sign-in, sign-in after logoff, BIOS/UEFI, and some anti-cheat-protected applications remain unsupported; use a hardware KVM or Windows Remote Desktop for those scenarios.
+
+The DeskMesh administrator is an application account, not a Windows administrator. Unlocking the control panel does not elevate DeskMesh or bypass UAC. Installing or removing the optional UAC bridge is a separate Windows administrator action and always triggers a Windows consent prompt. DeskMesh also cannot defend against malicious code already running as the same Windows user, a compromised browser profile, or a Windows administrator.
+
+AI diagnostics are disabled by default. When enabled, DeskMesh sends a redacted state summary and up to 20 recent diagnostic messages to the configured OpenAI-compatible HTTPS endpoint. It excludes screen, audio, clipboard, file contents, credentials, pairing codes, API keys, device identifiers, IP addresses, certificate fingerprints, and Windows paths. API keys are stored in a separate Windows DPAPI-protected file. Model output is untrusted: only **return local control**, **probe displays**, and **disable physical following** can be executed, after local state checks; arbitrary commands are never accepted.
 
 The web login protects the loopback control panel; peer authentication is a different boundary. Paired Agents still authenticate over the LAN with mutual TLS and pinned device certificates. A web session never replaces peer pairing, and pairing a device never signs that device into the local administrator panel. If the administrator password is forgotten, use the tray recovery command on that PC. Recovery ends local web sessions and resets only the control-panel credential; it does not delete the device identity, trusted peer records, or display mappings.
 

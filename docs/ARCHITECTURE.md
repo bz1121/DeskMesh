@@ -22,6 +22,7 @@ flowchart LR
     Discovery["发现\n45830/UDP，TTL=1"] --> LocalApi
     Discovery --> Peer
     LocalApi --> Data["本机应用数据\n身份、信任、设置、暂存"]
+    LocalApi -. "显式启用；脱敏 HTTPS" .-> AI["OpenAI 兼容诊断 API"]
 ```
 
 ### Agent 与本地网页
@@ -42,7 +43,9 @@ flowchart LR
 - WASAPI loopback 系统音频；
 - 登录后普通桌面的 GDI 抓屏。
 
-这些能力受 Windows 完整性级别和安全桌面限制，不能控制 UAC、锁屏、登录前、Ctrl+Alt+Del、BIOS 或部分反作弊应用。
+这些能力受 Windows 完整性级别和安全桌面限制。默认 Agent 不能控制 UAC；用户可显式安装独立的 `DeskMesh.PrivilegedBridge` Windows 服务。服务通过仅允许当前用户 SID 与 LocalSystem 的命名管道接收有界、版本化的键鼠消息，再在对应会话的 `winsta0\\winlogon` 桌面启动最小辅助进程。协议不包含命令、路径或任意载荷。默认只在同会话 `consent.exe` 存在时把 `Winlogon` 判为 `uac-consent`；只有用户另行开启锁屏扩展且同会话 `LogonUI.exe` 存在时，才判为 `locked-session`。官方安全注意序列由服务在已认证命名管道客户端的模拟令牌下调用 `SendSAS(true)`，不通过普通键盘注入伪造。
+
+Windows GDI 不能从普通用户桌面采集 Winlogon，因此锁屏扩展只保持已认证输入通道，不传输锁屏画面、不读取凭据，也不支持开机/注销后的登录。`SendSAS` 是否生效还由目标电脑的 Windows“软件安全注意序列”服务策略决定；DeskMesh 不修改策略。UAC 仍需人工确认，BIOS 和部分反作弊应用仍不支持。
 
 ## 网络边界
 
@@ -84,12 +87,19 @@ flowchart LR
 
 最高 90 FPS 是实验目标。实际值受 GDI 抓屏、JPEG 编码、分辨率、CPU 和网络影响；实现优先丢弃陈旧帧，而不是牺牲延迟追赶积压。
 
+### AI 诊断与修复
+
+`AiRepairService` 只在本机管理员显式配置后工作。它把有限状态和最近诊断先在本机删除设备名、设备 ID、地址、证书指纹与 Windows 路径，再调用 OpenAI 兼容的 `/chat/completions`。API Key 由独立 `AiSecretStore` 使用 Windows DPAPI 保存，不进入 `settings.json`、提示词或网页响应。
+
+模型响应不是执行计划。解析器只保留固定动作 ID，执行层再次用本机状态检查，并只调用现有协调服务：安全回到本机、只读显示器探测、关闭实体跟随。协议没有命令、脚本、注册表、路径或自由参数入口。自动模式使用有界队列、十分钟节流和更严格的触发来源检查。
+
 ## 源码布局
 
 ```text
 app/                         React 页面与样式
 web/                         Vite 入口和本地开发代理
 src/LanSwitch.Agent/         托盘、Web/API、设备协调服务
+src/DeskMesh.PrivilegedBridge/ 可选 UAC 安全桌面输入服务与会话辅助进程
 src/LanSwitch.Core/          平台无关模型和状态机
 src/LanSwitch.Windows/       Win32、剪贴板、输入和 DDC/CI
 tests/                       Core、Agent、Windows 单元/边界测试

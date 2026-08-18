@@ -8,7 +8,7 @@
 
 DeskMesh 是面向 Windows 10/11 x64 的局域网桌面互联工具。两台可信电脑运行同一个托盘 Agent，即可共享键鼠、系统音频、远程桌面、文本/图片剪贴板和确认式文件传输；共用一台支持 DDC/CI 的显示器时，还可联动 HDMI1 与 DP 输入源。
 
-> **Alpha 提示：** 当前公开版本为 `v0.1.0-alpha.5`。远程桌面、音频与 DDC/CI 属于实验能力；90 FPS 是配置上限，不是所有电脑或网络都能达到的保证值。发行 EXE 暂未进行 Authenticode 签名，Windows SmartScreen 可能提示“未知发布者”。
+> **Alpha 提示：** 当前公开版本为 `v0.1.0-alpha.6`。远程桌面、音频与 DDC/CI 属于实验能力；90 FPS 是配置上限，不是所有电脑或网络都能达到的保证值。发行 EXE 暂未进行 Authenticode 签名，Windows SmartScreen 可能提示“未知发布者”。
 
 DeskMesh 不依赖云服务。本地中文控制台只监听 `127.0.0.1:5616`；设备间使用 `45832/TCP`、双向 TLS、ECDSA 设备身份及证书指纹固定，自动发现使用 `45830/UDP`。
 
@@ -28,18 +28,20 @@ DeskMesh 不依赖云服务。本地中文控制台只监听 `127.0.0.1:5616`；
 - DDC 只写兼容模式只允许 HDMI1 `0x11` 和 DP `0x0F`，必须逐项测试并目视确认。
 - 六位一次性配对码、安全短语、mTLS、epoch/序号防重放、组播/定向广播发现和手动 IP。
 - 本机管理员登录保护的中文响应式控制台、仅托盘可发起的首次设置与恢复，以及当前 Windows 用户登录后自启动。
+- 可选的 UAC 安全桌面组件：由本机管理员显式安装，仅转发已认证的固定键鼠事件，不关闭 UAC，也不会自动点击“是”；另有默认关闭的锁屏扩展，可控制已登录后再锁定的会话并请求 Windows 官方 Ctrl+Alt+Del。
+- 可选的 OpenAI 兼容诊断：只发送脱敏健康信息，并且只能执行三种本地白名单恢复动作；模型输出不能运行命令、脚本、注册表修改或任意文件操作。
 
 为保护隐私，**新安装默认关闭自动剪贴板、音频和远程桌面**。请只与可信设备配对，并在本机逐项开启需要的能力。
 
 ## 下载与校验
 
 从 [GitHub Releases](https://github.com/bz1121/DeskMesh/releases) 下载
-`DeskMesh-0.1.0-alpha.5-win-x64.zip` 和 `SHA256SUMS.txt`。两台电脑必须使用同一版本。
+`DeskMesh-0.1.0-alpha.6-win-x64.zip` 和 `SHA256SUMS.txt`。两台电脑必须使用同一版本。
 
 PowerShell 校验：
 
 ```powershell
-Get-FileHash .\DeskMesh-0.1.0-alpha.5-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeskMesh-0.1.0-alpha.6-win-x64.zip -Algorithm SHA256
 ```
 
 确认输出与 Release 页面及 `SHA256SUMS.txt` 一致后再解压运行。DeskMesh 是便携程序，不安装 SYSTEM 服务，也没有局域网自更新或远程推送程序功能。
@@ -64,9 +66,13 @@ Get-FileHash .\DeskMesh-0.1.0-alpha.5-win-x64.zip -Algorithm SHA256
 
 ## 重要边界
 
-DeskMesh 是软件转发，不会真的把 USB 设备重新插到另一台电脑。Windows `SendInput` 不能可靠控制 UAC 安全桌面、锁屏、登录前界面、`Ctrl+Alt+Del`、BIOS、权限更高的管理员窗口或部分反作弊游戏；这些场景请使用硬件 KVM。
+DeskMesh 是软件转发，不会真的把 USB 设备重新插到另一台电脑。普通 `SendInput` 无法跨越 UAC 安全桌面；可在每台目标电脑的“管理员设置”中显式安装可选安全桌面组件。该组件只转发 DeskMesh 的固定键盘/鼠标协议，Windows 仍会显示 UAC 提示并要求用户明确确认，它不能执行命令或自动同意提权。
 
-DeskMesh 管理员只是应用内账户，不是 Windows 管理员。解锁控制台不会提升 DeskMesh 权限、绕过 UAC，也不会扩大 `SendInput` 的 Windows 安全边界；它同样不能防御已经以同一 Windows 用户身份运行的恶意代码、已失陷的浏览器配置或 Windows 管理员。
+同一卡片另有默认关闭的“锁屏会话控制”。开启后，当前已认证控制会话可向**已经登录后再锁定**的 Windows 会话输入；DeskMesh 不读取或保存 Windows 密码。GDI 远程画面无法采集 Winlogon，因此锁屏时应以目标电脑实体/共享显示器为准。远程桌面的“发送 Ctrl+Alt+Del”使用微软官方 `SendSAS`，目标电脑还必须在本地安全策略中将“禁用或启用软件安全注意序列”启用并选择“服务”；DeskMesh 不会修改该策略。开机登录、注销后的登录、BIOS 和部分反作弊程序仍不支持，这些场景请使用硬件 KVM 或 Windows 远程桌面。
+
+DeskMesh 管理员只是应用内账户，不是 Windows 管理员。解锁控制台不会提升 DeskMesh 权限或绕过 UAC；安装/卸载可选安全桌面组件是独立的 Windows 管理员操作，每次都会触发 Windows UAC。它同样不能防御已经以同一 Windows 用户身份运行的恶意代码、已失陷的浏览器配置或 Windows 管理员。
+
+AI 诊断默认关闭。启用后，DeskMesh 只向你填写的 OpenAI 兼容 HTTPS 地址发送脱敏状态和最近 20 条诊断，不发送屏幕、音频、剪贴板、文件内容、密码、配对码、API Key、设备标识、IP、证书指纹或 Windows 路径。API Key 单独保存在 Windows DPAPI 加密文件中。模型输出始终视为不可信；程序只能执行“回到本机、重新探测显示器、关闭实体跟随”三种本地白名单动作，并在执行前再次检查状态。
 
 网页登录只保护 `127.0.0.1` 上的本机控制面；两台 Agent 之间仍通过 mTLS、证书指纹和配对关系验证身份。网页会话不能代替设备配对，设备配对也不会登录本机管理员控制台。忘记管理员密码时，必须在该电脑的托盘菜单中重置控制台登录；该操作会结束本机网页会话并重置管理员凭据，但不会删除设备身份、已配对设备或显示器映射。
 

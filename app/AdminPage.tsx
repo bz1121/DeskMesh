@@ -1,12 +1,17 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import {
   ApiError,
   apiRequest,
+  type AiAssistantStatus,
+  type AiAssistantUpdate,
+  type AiRepairExecution,
+  type AiRepairProposal,
   type AuthStatus,
   type ConnectionState,
   jsonRequest,
   MINIMUM_ADMIN_PASSWORD_LENGTH,
   resetSessionToken,
+  type PrivilegedBridgeStatus,
   type SessionRevokeResult,
 } from "../web/api";
 import { useAdminAuth } from "./AuthGate";
@@ -36,8 +41,180 @@ export default function AdminPage({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
   const [sessionsBusy, setSessionsBusy] = useState(false);
+  const [uacBridge, setUacBridge] = useState<PrivilegedBridgeStatus | null>(null);
+  const [uacBusy, setUacBusy] = useState(false);
+  const [aiStatus, setAiStatus] = useState<AiAssistantStatus | null>(null);
+  const [aiBaseUrl, setAiBaseUrl] = useState("https://api.openai.com/v1");
+  const [aiModel, setAiModel] = useState("");
+  const [aiApiKey, setAiApiKey] = useState("");
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [aiAutoRepair, setAiAutoRepair] = useState(false);
+  const [aiBusy, setAiBusy] = useState<"save" | "analyze" | "apply" | null>(null);
+  const [aiProposal, setAiProposal] = useState<AiRepairProposal | null>(null);
 
   const activeSessionCount = Math.max(1, auth.activeSessionCount ?? 1);
+
+  useEffect(() => {
+    if (!active || connection !== "online") return;
+    let cancelled = false;
+    void apiRequest<PrivilegedBridgeStatus>("/api/v1/admin/uac-bridge")
+      .then((status) => {
+        if (!cancelled) setUacBridge(status);
+      })
+      .catch(() => {
+        if (!cancelled) setUacBridge(null);
+      });
+    void apiRequest<AiAssistantStatus>("/api/v1/admin/ai")
+      .then((status) => {
+        if (cancelled) return;
+        setAiStatus(status);
+        setAiBaseUrl(status.baseUrl);
+        setAiModel(status.model);
+        setAiEnabled(status.enabled);
+        setAiAutoRepair(status.autoApplySafeFixes);
+      })
+      .catch(() => {
+        if (!cancelled) setAiStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, connection]);
+
+  async function saveAiSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAiBusy("save");
+    onNotice(null);
+    try {
+      const request: AiAssistantUpdate = {
+        enabled: aiEnabled,
+        baseUrl: aiBaseUrl,
+        model: aiModel,
+        autoApplySafeFixes: aiEnabled && aiAutoRepair,
+        apiKey: aiApiKey || null,
+      };
+      const next = await apiRequest<AiAssistantStatus>(
+        "/api/v1/admin/ai",
+        jsonRequest("PUT", request),
+        15_000,
+      );
+      setAiStatus(next);
+      setAiApiKey("");
+      setAiProposal(null);
+      onNotice({
+        tone: "success",
+        message: next.enabled
+          ? "AI 诊断已启用；只会发送脱敏诊断并执行本地白名单动作。"
+          : "AI 诊断已关闭。",
+      });
+    } catch (error) {
+      onNotice({
+        tone: "danger",
+        message: adminErrorMessage(error, "无法保存 AI 服务设置。"),
+      });
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
+  async function analyzeWithAi() {
+    setAiBusy("analyze");
+    onNotice(null);
+    try {
+      const proposal = await apiRequest<AiRepairProposal>(
+        "/api/v1/admin/ai/analyze",
+        jsonRequest("POST", {}),
+        35_000,
+      );
+      setAiProposal(proposal);
+      onNotice({ tone: "success", message: "AI 已完成一次脱敏诊断。" });
+    } catch (error) {
+      onNotice({
+        tone: "danger",
+        message: adminErrorMessage(error, "AI 诊断未完成。"),
+      });
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
+  async function applyAiProposal() {
+    if (!aiProposal) return;
+    setAiBusy("apply");
+    onNotice(null);
+    try {
+      const execution = await apiRequest<AiRepairExecution>(
+        `/api/v1/admin/ai/proposals/${encodeURIComponent(aiProposal.id)}/apply`,
+        jsonRequest("POST", { actionIds: aiProposal.actions.map((action) => action.id) }),
+        20_000,
+      );
+      const succeeded = execution.results.filter((result) => result.succeeded).length;
+      onNotice({
+        tone: succeeded === execution.results.length ? "success" : "warning",
+        message: `白名单修复完成：${succeeded}/${execution.results.length} 项成功。`,
+      });
+      setAiProposal(null);
+    } catch (error) {
+      onNotice({
+        tone: "danger",
+        message: adminErrorMessage(error, "无法执行 AI 修复建议。"),
+      });
+    } finally {
+      setAiBusy(null);
+    }
+  }
+
+  async function updateUacBridge(operation: "install" | "uninstall") {
+    setUacBusy(true);
+    onNotice(null);
+    try {
+      const status = await apiRequest<PrivilegedBridgeStatus>(
+        `/api/v1/admin/uac-bridge/${operation}`,
+        jsonRequest("POST", {}),
+        60_000,
+      );
+      setUacBridge(status);
+      onNotice({
+        tone: "success",
+        message:
+          operation === "install"
+            ? "UAC 安全桌面组件已安装；目标电脑出现 UAC 提示时仍需明确确认。"
+            : "UAC 安全桌面组件已卸载。",
+      });
+    } catch (error) {
+      onNotice({
+        tone: "danger",
+        message: adminErrorMessage(error, "无法更新 UAC 安全桌面组件。"),
+      });
+    } finally {
+      setUacBusy(false);
+    }
+  }
+
+  async function updateLockedSessionControl(enabled: boolean) {
+    setUacBusy(true);
+    onNotice(null);
+    try {
+      const status = await apiRequest<PrivilegedBridgeStatus>(
+        "/api/v1/admin/uac-bridge/settings",
+        jsonRequest("PUT", { lockedSessionControlEnabled: enabled }),
+      );
+      setUacBridge(status);
+      onNotice({
+        tone: enabled ? "warning" : "success",
+        message: enabled
+          ? "已允许当前已登录但锁定的 Windows 会话接收远程输入；请同时确认 Windows 的 Ctrl+Alt+Del 本地组策略。"
+          : "锁屏会话控制已关闭；UAC 提示控制仍可继续使用。",
+      });
+    } catch (error) {
+      onNotice({
+        tone: "danger",
+        message: adminErrorMessage(error, "无法保存锁屏会话控制设置。"),
+      });
+    } finally {
+      setUacBusy(false);
+    }
+  }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -258,13 +435,203 @@ export default function AdminPage({
           <ul>
             <li>管理员密码只保护 127.0.0.1:5616 上的本机控制台。</li>
             <li>设备之间仍使用一次性配对、mTLS 与证书指纹固定。</li>
-            <li>登录不会获得 Windows 管理员权限，也不能越过 UAC、锁屏或登录界面。</li>
+            <li>登录不会获得 Windows 管理员权限；UAC 仍由 Windows 显示并要求确认。</li>
             <li>任何密码、会话令牌和一次性设置令牌都不会同步到另一台电脑。</li>
           </ul>
           <p>
             忘记密码或凭据损坏时，请从 DeskMesh 托盘菜单重置控制台登录；网页不会提供匿名重置入口。
           </p>
         </article>
+
+        <article className="admin-card admin-boundary-card">
+          <header className="admin-card-heading">
+            <div>
+              <span>Windows 权限边界</span>
+              <h3>UAC 安全桌面控制</h3>
+            </div>
+            <span className="admin-role">
+              {uacBridge ? (uacBridge.installed ? "已安装" : "未安装") : "检测中"}
+            </span>
+          </header>
+          <p className="admin-card-copy">
+            可选组件以 LocalSystem 服务运行，只接受 DeskMesh 固定格式的键盘和鼠标事件。
+            它不会关闭 UAC、不会自动同意提权，也不会执行命令。
+          </p>
+          <dl className="admin-facts">
+            <div>
+              <dt>发布包组件</dt>
+              <dd>{uacBridge?.packaged ? "可用" : "当前包未包含"}</dd>
+            </div>
+            <div>
+              <dt>服务状态</dt>
+              <dd>{uacBridge?.installed ? "已连接" : "未连接"}</dd>
+            </div>
+            <div>
+              <dt>注入范围</dt>
+              <dd>
+                {uacBridge?.lockedSessionControlEnabled
+                  ? "UAC + 当前已登录的锁定会话"
+                  : "仅 UAC consent.exe 安全桌面"}
+              </dd>
+            </div>
+          </dl>
+          <label className="toggle-row">
+            <span>
+              <strong>允许控制已锁定的当前 Windows 会话</strong>
+              <small>
+                默认关闭。开启后，当前远程桌面会话可在 LogonUI 输入并请求 Ctrl+Alt+Del；DeskMesh 不读取或保存 Windows 密码。
+              </small>
+            </span>
+            <input
+              type="checkbox"
+              aria-label="允许控制已锁定的当前 Windows 会话"
+              checked={uacBridge?.lockedSessionControlEnabled ?? false}
+              disabled={uacBusy || !uacBridge}
+              onChange={(event) => void updateLockedSessionControl(event.target.checked)}
+            />
+          </label>
+          <div className="admin-session-actions">
+            <button
+              type="button"
+              className={uacBridge?.installed ? "danger-button" : "primary-button"}
+              disabled={uacBusy || !uacBridge || (!uacBridge.installed && !uacBridge.packaged)}
+              onClick={() => void updateUacBridge(uacBridge?.installed ? "uninstall" : "install")}
+            >
+              {uacBusy
+                ? "等待 Windows 确认…"
+                : uacBridge?.installed
+                  ? "卸载安全桌面组件"
+                  : "安装安全桌面组件"}
+            </button>
+          </div>
+          <p className="admin-card-note">
+            安装和卸载会弹出 Windows UAC；建议只在受信任的私人电脑上启用。
+            锁屏扩展只支持已经登录后再锁定的会话，不支持开机登录、注销后的登录、BIOS 或绕过 Windows 凭据校验。
+          </p>
+        </article>
+
+        <form className="admin-card admin-boundary-card" onSubmit={(event) => void saveAiSettings(event)}>
+          <header className="admin-card-heading">
+            <div>
+              <span>可选诊断服务</span>
+              <h3>AI 诊断与安全修复</h3>
+            </div>
+            <span className="admin-role">
+              {aiStatus?.enabled ? "已启用" : aiStatus ? "未启用" : "检测中"}
+            </span>
+          </header>
+          <p className="admin-card-copy">
+            兼容 OpenAI Chat Completions API。只发送脱敏后的运行状态与诊断日志，
+            不发送剪贴板、文件、屏幕内容、密码、配对码或 API Key。
+          </p>
+          <label className="field-label">
+            API 基础地址
+            <input
+              type="url"
+              value={aiBaseUrl}
+              disabled={aiBusy !== null}
+              required
+              placeholder="https://api.openai.com/v1"
+              onChange={(event) => setAiBaseUrl(event.target.value)}
+            />
+            <small>非本机服务必须使用 HTTPS；地址后面不要填写 /chat/completions。</small>
+          </label>
+          <label className="field-label">
+            模型名称
+            <input
+              type="text"
+              value={aiModel}
+              disabled={aiBusy !== null}
+              maxLength={200}
+              placeholder="例如 gpt-5-mini"
+              onChange={(event) => setAiModel(event.target.value)}
+            />
+          </label>
+          <label className="field-label">
+            API Key
+            <input
+              type="password"
+              value={aiApiKey}
+              disabled={aiBusy !== null}
+              maxLength={4096}
+              autoComplete="off"
+              placeholder={aiStatus?.apiKeyConfigured ? "已安全保存；留空保持不变" : "仅保存在本机 DPAPI 加密文件中"}
+              onChange={(event) => setAiApiKey(event.target.value)}
+            />
+          </label>
+          <label className="toggle-row">
+            <span>
+              <strong>启用 AI 诊断</strong>
+              <small>手动分析最近的脱敏错误并生成白名单修复建议。</small>
+            </span>
+            <input
+              type="checkbox"
+              aria-label="启用 AI 诊断"
+              checked={aiEnabled}
+              disabled={aiBusy !== null}
+              onChange={(event) => {
+                setAiEnabled(event.target.checked);
+                if (!event.target.checked) setAiAutoRepair(false);
+              }}
+            />
+          </label>
+          <label className="toggle-row">
+            <span>
+              <strong>自动执行低风险修复</strong>
+              <small>最多每 10 分钟分析一次；仍由本机规则复核状态，不执行命令、脚本或任意文件操作。</small>
+            </span>
+            <input
+              type="checkbox"
+              aria-label="自动执行低风险修复"
+              checked={aiAutoRepair}
+              disabled={aiBusy !== null || !aiEnabled}
+              onChange={(event) => setAiAutoRepair(event.target.checked)}
+            />
+          </label>
+          {aiStatus?.secretError ? <p className="auth-error" role="alert">{aiStatus.secretError}</p> : null}
+          <div className="admin-session-actions">
+            <button type="submit" className="primary-button" disabled={aiBusy !== null}>
+              {aiBusy === "save" ? "正在保存…" : "保存 AI 设置"}
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={aiBusy !== null || !aiStatus?.enabled || !aiStatus.apiKeyConfigured}
+              onClick={() => void analyzeWithAi()}
+            >
+              {aiBusy === "analyze" ? "正在分析…" : "立即安全分析"}
+            </button>
+          </div>
+          {aiProposal ? (
+            <div className="admin-card-note" role="status">
+              <strong>诊断摘要：</strong> {aiProposal.summary}
+              <br />
+              <strong>置信度：</strong> {Math.round(aiProposal.confidence * 100)}%
+              {aiProposal.actions.length > 0 ? (
+                <>
+                  <ul>
+                    {aiProposal.actions.map((action) => (
+                      <li key={action.id}>{action.description}：{action.reason}</li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={aiBusy !== null}
+                    onClick={() => void applyAiProposal()}
+                  >
+                    {aiBusy === "apply" ? "正在执行…" : "执行以上白名单修复"}
+                  </button>
+                </>
+              ) : (
+                <p>没有可由 DeskMesh 自动执行的安全动作。</p>
+              )}
+            </div>
+          ) : null}
+          <p className="admin-card-note">
+            AI 输出始终视为不可信建议；DeskMesh 只识别“回到本机、重新探测显示器、关闭实体跟随”三种固定动作。
+          </p>
+        </form>
       </div>
     </section>
   );
