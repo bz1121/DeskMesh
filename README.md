@@ -8,7 +8,7 @@
 
 DeskMesh is a local-network desktop companion for Windows 10 and Windows 11 x64. Run the same tray agent on two trusted PCs to share keyboard and mouse input, system audio, a remote desktop view, text and image clipboards, and approval-based file transfers. If both PCs share a DDC/CI-capable monitor, DeskMesh can also coordinate HDMI1 and DisplayPort input switching.
 
-> **Alpha notice:** The current public release is `v0.1.0-alpha.5`. Remote desktop, audio forwarding, and DDC/CI integration are experimental. The 90 FPS setting is an upper limit, not a performance guarantee for every computer or network. Release executables are not yet Authenticode-signed, so Windows SmartScreen may report an unknown publisher.
+> **Alpha notice:** The current public release is `v0.1.0-alpha.6`. Remote desktop, audio forwarding, and DDC/CI integration are experimental. The 90 FPS setting is an upper limit, not a performance guarantee for every computer or network. Release executables are not yet Authenticode-signed, so Windows SmartScreen may report an unknown publisher.
 
 DeskMesh has no cloud dependency. Its local control panel listens only on `127.0.0.1:5616`. Peer traffic uses `45832/TCP` with mutual TLS, ECDSA device identities, and pinned certificate fingerprints; automatic discovery uses `45830/UDP`.
 
@@ -35,12 +35,12 @@ For privacy, **automatic clipboard synchronization, audio forwarding, and remote
 
 ## Download and verify
 
-Download `DeskMesh-0.1.0-alpha.5-win-x64.zip` and `SHA256SUMS.txt` from [GitHub Releases](https://github.com/bz1121/DeskMesh/releases). Both PCs must run the same version.
+Download `DeskMesh-0.1.0-alpha.6-win-x64.zip` and `SHA256SUMS.txt` from [GitHub Releases](https://github.com/bz1121/DeskMesh/releases). Both PCs must run the same version.
 
 Verify the archive in PowerShell:
 
 ```powershell
-Get-FileHash .\DeskMesh-0.1.0-alpha.5-win-x64.zip -Algorithm SHA256
+Get-FileHash .\DeskMesh-0.1.0-alpha.6-win-x64.zip -Algorithm SHA256
 ```
 
 Compare the result with `SHA256SUMS.txt` on the release page before extracting the archive. DeskMesh is portable: it does not install a SYSTEM service and does not include LAN self-update or remote software-push functionality.
