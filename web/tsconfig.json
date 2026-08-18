@@ -2,7 +2,7 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "incremental": false,
-    "types": ["vite/client"]
+    "types": ["vite/client", "node"]
   },
   "include": [
     "../app/page.tsx",
