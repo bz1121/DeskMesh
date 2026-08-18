@@ -20,6 +20,8 @@ public sealed class AppState
     private readonly Queue<DiagnosticLogView> _diagnostics = new();
     private long _diagnosticSequence;
 
+    public event Action<DiagnosticLogView>? DiagnosticAdded;
+
     public AppState(DeviceIdentity identity, SettingsStore settings, AgentOptions options)
     {
         _identity = identity;
@@ -151,7 +153,19 @@ public sealed class AppState
             while (_diagnostics.Count > 200) _diagnostics.Dequeue();
         }
         Publish("diagnostic", value);
+        NotifyDiagnosticAdded(value);
         return value;
+    }
+
+    private void NotifyDiagnosticAdded(DiagnosticLogView value)
+    {
+        var handlers = DiagnosticAdded;
+        if (handlers is null) return;
+        foreach (Action<DiagnosticLogView> handler in handlers.GetInvocationList())
+        {
+            try { handler(value); }
+            catch { }
+        }
     }
 
     public void ClearDiagnostics()

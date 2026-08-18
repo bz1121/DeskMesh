@@ -22,6 +22,7 @@ flowchart LR
     Discovery["发现\n45830/UDP，TTL=1"] --> LocalApi
     Discovery --> Peer
     LocalApi --> Data["本机应用数据\n身份、信任、设置、暂存"]
+    LocalApi -. "显式启用；脱敏 HTTPS" .-> AI["OpenAI 兼容诊断 API"]
 ```
 
 ### Agent 与本地网页
@@ -83,6 +84,12 @@ flowchart LR
 浏览器创建随机远程桌面会话，Agent 通过已配对 WSS 代理选定屏幕的 JPEG 帧和画面内输入。视频、输入和系统音频是独立数据面，共享同一可撤销会话身份；单一数据面失败不应无条件终止其他数据面。
 
 最高 90 FPS 是实验目标。实际值受 GDI 抓屏、JPEG 编码、分辨率、CPU 和网络影响；实现优先丢弃陈旧帧，而不是牺牲延迟追赶积压。
+
+### AI 诊断与修复
+
+`AiRepairService` 只在本机管理员显式配置后工作。它把有限状态和最近诊断先在本机删除设备名、设备 ID、地址、证书指纹与 Windows 路径，再调用 OpenAI 兼容的 `/chat/completions`。API Key 由独立 `AiSecretStore` 使用 Windows DPAPI 保存，不进入 `settings.json`、提示词或网页响应。
+
+模型响应不是执行计划。解析器只保留固定动作 ID，执行层再次用本机状态检查，并只调用现有协调服务：安全回到本机、只读显示器探测、关闭实体跟随。协议没有命令、脚本、注册表、路径或自由参数入口。自动模式使用有界队列、十分钟节流和更严格的触发来源检查。
 
 ## 源码布局
 

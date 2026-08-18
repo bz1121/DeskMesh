@@ -163,6 +163,46 @@ export type PrivilegedBridgeStatus = {
   message?: string | null;
 };
 
+export type AiAssistantStatus = {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  autoApplySafeFixes: boolean;
+  apiKeyConfigured: boolean;
+  secretError?: string | null;
+};
+
+export type AiAssistantUpdate = {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  autoApplySafeFixes: boolean;
+  apiKey?: string | null;
+  clearApiKey?: boolean;
+};
+
+export type AiRepairAction = {
+  id: string;
+  description: string;
+  risk: "low" | "medium" | string;
+  reason: string;
+};
+
+export type AiRepairProposal = {
+  id: string;
+  summary: string;
+  confidence: number;
+  actions: AiRepairAction[];
+  expiresAt: string;
+};
+
+export type AiRepairExecution = {
+  proposalId: string;
+  automatic: boolean;
+  results: Array<{ id: string; succeeded: boolean; message: string }>;
+  completedAt: string;
+};
+
 export type HotkeySettings = {
   switchToLocal: string;
   toggleRemote: string;

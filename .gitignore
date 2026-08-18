@@ -61,6 +61,8 @@ yarn-error.log*
 **/identity.bin.new
 **/admin-auth.bin
 **/admin-auth.bin.new
+**/ai-secrets.bin
+**/ai-secrets.bin.new
 *.pfx
 *.p12
 *.key
