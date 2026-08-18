@@ -140,6 +140,10 @@ try {
         }
     }
 
+    $allowedExecutables = @(
+        [IO.Path]::GetFullPath((Join-Path $publishDirectory "DeskMesh.exe")),
+        [IO.Path]::GetFullPath((Join-Path $publishDirectory "privileged\DeskMesh.PrivilegedBridge.exe"))
+    )
     $forbiddenFiles = @(Get-ChildItem -LiteralPath $publishDirectory -Recurse -File | Where-Object {
         $_.Extension -ieq ".pdb" -or
         $_.Extension -ieq ".dll" -or
@@ -149,14 +153,14 @@ try {
         $_.Name -ieq "packages.lock.json" -or
         $_.Name -ieq "packages.win-x64.lock.json" -or
         $_.Name -ieq "web.config" -or
-        ($_.Extension -ieq ".exe" -and $_.Name -ine "DeskMesh.exe")
+        ($_.Extension -ieq ".exe" -and $allowedExecutables -notcontains [IO.Path]::GetFullPath($_.FullName))
     })
     if ($forbiddenFiles.Count -gt 0) {
         $relativePaths = $forbiddenFiles | ForEach-Object { [IO.Path]::GetRelativePath($publishDirectory, $_.FullName) }
         throw "Publish output contains files forbidden from the public package: $($relativePaths -join ', ')"
     }
 
-    foreach ($requiredPath in @("DeskMesh.exe", "appsettings.json", "wwwroot\index.html")) {
+    foreach ($requiredPath in @("DeskMesh.exe", "privileged\DeskMesh.PrivilegedBridge.exe", "appsettings.json", "wwwroot\index.html")) {
         if (-not (Test-Path -LiteralPath (Join-Path $publishDirectory $requiredPath) -PathType Leaf)) {
             throw "Required portable package file missing: $requiredPath"
         }
