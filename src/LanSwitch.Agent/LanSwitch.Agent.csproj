@@ -24,7 +24,7 @@
   <ItemGroup>
     <ProjectReference Include="..\LanSwitch.Core\LanSwitch.Core.csproj" />
     <ProjectReference Include="..\LanSwitch.Windows\LanSwitch.Windows.csproj" />
-    <PackageReference Include="NAudio" Version="2.3.0" />
+    <PackageReference Include="NAudio" Version="2.4.0" />
   </ItemGroup>
 
   <ItemGroup>
